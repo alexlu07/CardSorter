@@ -65,7 +65,7 @@ python visualizer.py
 python card_sorter.py --start L --bounds 52
 ```
 
-Open the visualizer at http://127.0.0.1:8765 to replay a seeded or custom deck. The optional time-limited optimizer can try to shorten the verified plan. [Seed 42 transfers](example_moves_seed42.txt) lists both routes. [The C++ certifier](certify_blocks.cpp) reproduces the small-block constants used by the bound calculation.
+Open the visualizer at http://127.0.0.1:8765 to replay a seeded or custom deck. The optional time-limited optimizer can try to shorten the verified plan. [The C++ certifier](certify_blocks.cpp) reproduces the small-block constants used by the bound calculation.
 
 ## Hardware with an unknown deck order
 
@@ -266,41 +266,6 @@ also checks its stage budgets and final result before physical sorting begins.
 A particular starting deck can require fewer movements. The seed-42 middle
 demo uses 318; the default left demo uses 338.
 
-### Batch simulation results
-
-A full run in **middle-start mode** over **10,000 shuffled decks**, using seeds 0–9999, completed with
-**zero failures**. Every deck finished 1–52 in the center with empty side stacks.
-Counts include the initial 52 distribution transfers:
-
-| Measure | Movements |
-| --- | ---: |
-| Minimum | 278 |
-| Average | 306.3986 |
-| Maximum | 328 |
-| Runs reaching 350 | 0 |
-
-The run independently replayed every actual simulated hardware event, checking
-adjacent top-card transfers, card conservation, scan order, the initial value
-partition, protected waiting/finished groups, stage budgets, and movement counts.
-All 10,000 samples were strictly below 350; this batch exercises simulated
-hardware and does not validate physical motors, cameras, or sensors.
-Detailed statistics and the movement histogram are in
-[`simulation-results.json`](simulation-results.json). Reproduce the highest-count
-sample with `python3 cards.py --demo --start center --seed 3477`. These statistics
-describe middle-start mode; they do not describe the direct side-start method.
-
-The direct side strategy passed **302 cases per side**: seeds 0–299 plus ordered
-and reversed decks. Each side used 278–354 moves, averaging about 337.41, and
-both produced identical counts on reflected inputs. A further 102 middle cases
-passed, as did 12 optimized cases across all start positions. Every simulated
-transfer was independently replayed to check legal top-card movement, conservation,
-camera scan order, the direct partition, and protected groups. Feed, recognition,
-and opposite-side routing failures stopped with only confirmed progress recorded.
-Detailed counts are in [`direct-side-results.json`](direct-side-results.json).
-The 378 bound is a worst-case guarantee for the direct strategy; some sampled
-side decks exceeded 350, so the middle method's 350 guarantee must not be applied
-to side starts.
-
 ## Files and planner API
 
 - `cards.py`: card numbering, `InitialDealer` for middle starts, `SideDealer` for
@@ -314,9 +279,6 @@ to side starts.
   pattern databases, local repairs, and beam search.
 - `visualizer.py`, `visualizer.html`: local simulation server and interactive
   playback of the three compartments, scans, and card movements.
-- `simulation-results.json`: results of the 10,000-deck simulation batch.
-- `direct-side-results.json`: separate direct-side and middle-regression results.
-- `search-benchmark.json`: historical 207-run comparison of beam, A*, and IDA*. A rerun on the combined planner's plans also favoured beam, which is now the only improver.
 
 `Move(card, source, destination)` describes a single adjacent top-card transfer;
 it does not operate a motor. `exact_plan(initial, target)` finds a shortest
