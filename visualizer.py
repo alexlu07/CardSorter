@@ -29,8 +29,7 @@ def validate_deck(deck):
     return deck.copy()
 
 
-def simulation(seed=None, start="left", *, deck=None, optimize=False, search_seconds=2.0,
-               search_algorithm="beam"):
+def simulation(seed=None, start="left", *, deck=None, optimize=False, search_seconds=2.0):
     if type(optimize) is not bool:
         raise ValueError("Optimize must be true or false")
     custom = deck is not None
@@ -40,8 +39,7 @@ def simulation(seed=None, start="left", *, deck=None, optimize=False, search_sec
         deck = list(range(1, 53))
         random.Random(seed).shuffle(deck)
     hardware = SimulatedHardware(deck, start=start)
-    state = CardSorter(hardware, start=start, optimize=optimize, search_seconds=search_seconds,
-                       search_algorithm=search_algorithm).run(deck=deck)
+    state = CardSorter(hardware, start=start, optimize=optimize, search_seconds=search_seconds).run(deck=deck)
     expected = [(), (), ()]
     expected[("left", "center", "right").index(start)] = tuple(range(1, 53))
     if state.stacks != tuple(expected):
@@ -92,8 +90,7 @@ class Handler(BaseHTTPRequestHandler):
             if start not in ("left", "center", "right"):
                 raise ValueError("Start must be left, center, or right")
             payload = simulation(start=start, deck=deck, optimize=request.get("optimize", False),
-                                 search_seconds=request.get("search_seconds", 2.0),
-                                 search_algorithm=request.get("search_algorithm", "beam"))
+                                 search_seconds=request.get("search_seconds", 2.0))
         except (ValueError, UnicodeDecodeError) as error:
             self.respond(400, json.dumps({"error": str(error)}).encode(), "application/json")
             return
@@ -120,8 +117,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Optimize must be true or false")
                 search_seconds = float(params.get("search_seconds", ["2"])[0])
                 payload = simulation(seed, start=start, optimize=optimize == "true",
-                                     search_seconds=search_seconds,
-                                     search_algorithm=params.get("search_algorithm", ["beam"])[0])
+                                     search_seconds=search_seconds)
             except ValueError as error:
                 self.respond(400, json.dumps({"error": str(error)}).encode(), "application/json")
                 return

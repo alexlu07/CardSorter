@@ -246,8 +246,6 @@ def main() -> None:
                         help="starting and finishing compartment (default: left)")
     parser.add_argument("--show-moves", action="store_true", help="print each confirmed adjacent transfer")
     parser.add_argument("--optimize", action="store_true", help="search for fewer moves after scanning")
-    parser.add_argument("--search-algorithm", choices=("beam", "astar"), default="beam",
-                        help="optimizer algorithm (default: beam)")
     parser.add_argument("--search-seconds", type=float, default=2.0,
                         help="optimizer search budget, 0–30 seconds (default: 2)")
     args = parser.parse_args()
@@ -259,7 +257,7 @@ def main() -> None:
     from sorter import CardSorter
 
     state = CardSorter(hardware, start=args.start, optimize=args.optimize,
-                       search_seconds=args.search_seconds, search_algorithm=args.search_algorithm).run(deck=deck)
+                       search_seconds=args.search_seconds).run(deck=deck)
     start = 0
     stages = {}
     previous = 0

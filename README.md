@@ -311,12 +311,12 @@ to side starts.
   `plan_side_remaining` plans direct side sorting after its camera partition.
 - `sorter.py`: `CardSorter` executes initial dealing and the remaining plan.
 - `heuristic_planner.py`: time-bounded `optimize_plan`, admissible lower bounds,
-  pattern databases, local repairs, beam search, and A*.
+  pattern databases, local repairs, and beam search.
 - `visualizer.py`, `visualizer.html`: local simulation server and interactive
   playback of the three compartments, scans, and card movements.
 - `simulation-results.json`: results of the 10,000-deck simulation batch.
 - `direct-side-results.json`: separate direct-side and middle-regression results.
-- `search-benchmark.json`: the 207-run paired comparison and solver-retention decision.
+- `search-benchmark.json`: historical 207-run comparison of beam, A*, and IDA*. A rerun on the combined planner's plans also favoured beam, which is now the only improver.
 
 `Move(card, source, destination)` describes a single adjacent top-card transfer;
 it does not operate a motor. `exact_plan(initial, target)` finds a shortest
@@ -337,7 +337,7 @@ planner, optionally improves the remaining plan, then executes it.
 Construct simulated hardware with the same start value, for example
 `SimulatedHardware(deck, start="right")` and `CardSorter(hardware, start="right")`.
 For optional improvement, use `CardSorter(hardware, start="right", optimize=True,
-search_seconds=2, search_algorithm="beam")`. `state.optimization` contains the search statistics; the
+search_seconds=2)`. `state.optimization` contains the search statistics; the
 standalone optimizer returns an `OptimizationResult` with moves and a
 serializable `.summary()`.
 

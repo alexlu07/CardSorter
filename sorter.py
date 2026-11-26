@@ -58,17 +58,14 @@ class SortState:
 
 class CardSorter:
     def __init__(self, hardware: SortingHardware, *, start: str = "left", optimize: bool = False,
-                 search_seconds: float = 2.0, search_algorithm: str = "beam"):
+                 search_seconds: float = 2.0):
         if start not in ("left", "center", "right"):
             raise ValueError("Start must be left, center, or right")
         if isinstance(search_seconds, bool) or not isinstance(search_seconds, (int, float)) or not math.isfinite(search_seconds) or not 0 <= search_seconds <= 30:
             raise ValueError("Search time must be between 0 and 30 seconds")
-        if search_algorithm not in ("beam", "astar"):
-            raise ValueError("Search algorithm must be beam or astar")
         self.hardware = hardware
         self.optimize = optimize
         self.search_seconds = search_seconds
-        self.search_algorithm = search_algorithm
         self.dealer = InitialDealer(hardware) if start == "center" else SideDealer(hardware, start=start)
         self.state = SortState(self.dealer.state, start=start)
         self._started = False
@@ -108,10 +105,10 @@ class CardSorter:
             if self.state.initial_deal.confirmed_moves + len(plan.moves) > self.state.movement_budget:
                 raise RuntimeError("Plan exceeds its movement budget")
             if self.optimize:
-                label = {"beam": "Beam search", "astar": "A*"}[self.search_algorithm]
+                label = "Beam search"
                 self.state.phase = f"{label}: improving remaining plan"
                 result = optimize_plan(self.state.stacks, tuple(expected), plan.moves,
-                                       seconds=self.search_seconds, algorithm=self.search_algorithm)
+                                       seconds=self.search_seconds)
                 self.state.optimization = result.summary()
                 if result.moves != plan.moves:
                     plan = SortPlan(result.moves, ((f"{label}: execute improved plan", len(result.moves)),))

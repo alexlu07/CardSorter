@@ -1,4 +1,4 @@
-"""Time-bounded A* and beam improvements with a verified incumbent.
+"""Time-bounded beam-search improvements with a verified incumbent.
 
 Search moves are adjacent top-card transfers. A timeout always returns a legal
 plan no longer than the supplied fallback. Optimality applies to these search
@@ -9,7 +9,6 @@ from collections import deque
 from dataclasses import dataclass
 from functools import lru_cache
 import heapq
-from itertools import count
 import math
 import time
 
@@ -30,14 +29,12 @@ class OptimizationResult:
     nodes: int
     local_improvements: int
     elapsed_seconds: float
-    search_algorithm: str = "beam"
     memory_limited: bool = False
     beam_width: int | None = None
 
     def summary(self):
-        labels = {"astar": "A*", "beam": "Beam search"}
-        return {"enabled": True, "search_algorithm": self.search_algorithm,
-                "algorithm": labels[self.search_algorithm] + " with pattern databases and plan shortcuts",
+        return {"enabled": True,
+                "algorithm": "Beam search with pattern databases and plan shortcuts",
                 "scope": "remaining transfers after scanning and distribution",
                 "fallback_moves": self.fallback_moves, "result_moves": len(self.moves),
                 "saved_moves": self.fallback_moves - len(self.moves),
@@ -135,18 +132,17 @@ def _incumbent_suffixes(initial, moves):
     return suffixes
 
 
-class _BestFirst:
-    """A* or fixed-width beam; both keep valid improvements on resource limits.
+class _Beam:
+    """Fixed-width beam search that keeps valid improvements on resource limits.
 
     Beam pruning never proves optimality. Only a matching admissible lower
-    bound does. A* can also prove it by exhausting all cheaper open states.
+    bound does.
     """
 
     local_seconds = 0.075
     max_active = 12
 
-    def __init__(self, algorithm, width=64, max_states=25000):
-        self.algorithm = algorithm
+    def __init__(self, width=64, max_states=25000):
         self.width = width
         self.max_states = max_states
         self.nodes = 0
@@ -168,70 +164,38 @@ class _BestFirst:
                 if len(path) + len(suffix) < len(best):
                     best = path + tuple(suffix)
 
-        if self.algorithm == "beam":
-            frontier = [(initial, ())]
-            seen = {initial: 0}
-            while frontier:
-                candidates = {}
-                for state, path in frontier:
-                    if time.monotonic() >= deadline:
-                        self.timed_out = True
-                        return best, len(best) == lower, lower
-                    self.nodes += 1
-                    for following, move in _neighbors(state):
-                        cost = len(path) + 1
-                        if seen.get(following, math.inf) <= cost:
-                            continue
-                        route = path + (move,)
-                        reconnect(following, route)
-                        if len(best) == lower:
-                            return best, True, lower
-                        estimate = heuristic(following)
-                        if cost + estimate >= len(best):
-                            continue
-                        candidates.setdefault(following, (estimate, route))
-                selected = heapq.nsmallest(self.width, candidates.items(),
-                                          key=lambda entry: entry[1][0])
-                frontier = [(state, route) for state, (_, route) in selected]
-                if len(seen) + len(frontier) > self.max_states:
-                    # Beam search is already approximate; forgetting older
-                    # duplicate entries bounds memory without discarding best.
-                    self.memory_limited = True
-                    seen = {}
-                for state, route in frontier:
-                    seen[state] = len(route)
-            return best, len(best) == lower, lower
-
-        serial = count()
-        frontier = [(lower, lower, next(serial), initial, ())]
-        best_cost = {initial: 0}
+        frontier = [(initial, ())]
+        seen = {initial: 0}
         while frontier:
-            if time.monotonic() >= deadline:
-                self.timed_out = True
-                return best, len(best) == lower, lower
-            estimate, _, _, state, path = heapq.heappop(frontier)
-            if estimate >= len(best):
-                return best, True, len(best)
-            if best_cost.get(state) != len(path):
-                continue
-            self.nodes += 1
-            for following, move in _neighbors(state):
-                cost = len(path) + 1
-                if best_cost.get(following, math.inf) <= cost:
-                    continue
-                route = path + (move,)
-                reconnect(following, route)
-                if len(best) == lower:
-                    return best, True, lower
-                remaining = heuristic(following)
-                if cost + remaining >= len(best):
-                    continue
-                if len(best_cost) >= self.max_states or len(frontier) >= self.max_states:
-                    self.memory_limited = True
-                    return best, False, lower
-                best_cost[following] = cost
-                heapq.heappush(frontier, (cost + remaining, remaining, next(serial), following, route))
-        return best, True, len(best)
+            candidates = {}
+            for state, path in frontier:
+                if time.monotonic() >= deadline:
+                    self.timed_out = True
+                    return best, len(best) == lower, lower
+                self.nodes += 1
+                for following, move in _neighbors(state):
+                    cost = len(path) + 1
+                    if seen.get(following, math.inf) <= cost:
+                        continue
+                    route = path + (move,)
+                    reconnect(following, route)
+                    if len(best) == lower:
+                        return best, True, lower
+                    estimate = heuristic(following)
+                    if cost + estimate >= len(best):
+                        continue
+                    candidates.setdefault(following, (estimate, route))
+            selected = heapq.nsmallest(self.width, candidates.items(),
+                                      key=lambda entry: entry[1][0])
+            frontier = [(state, route) for state, (_, route) in selected]
+            if len(seen) + len(frontier) > self.max_states:
+                # Beam search is already approximate; forgetting older
+                # duplicate entries bounds memory without discarding best.
+                self.memory_limited = True
+                seen = {}
+            for state, route in frontier:
+                seen[state] = len(route)
+        return best, len(best) == lower, lower
 
 
 def _erase_cycles(initial, moves):
@@ -293,7 +257,7 @@ def _repair_windows(initial, moves, engine, deadline):
     return tuple(moves), improvements
 
 
-def optimize_plan(initial, target, fallback, *, seconds=2.0, algorithm="beam"):
+def optimize_plan(initial, target, fallback, *, seconds=2.0):
     """Return the best verified plan within a search budget, retaining fallback.
 
     Local search repairs and reconnections give anytime improvements; global
@@ -302,8 +266,6 @@ def optimize_plan(initial, target, fallback, *, seconds=2.0, algorithm="beam"):
     """
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or not 0 <= seconds <= 30:
         raise ValueError("Search time must be between 0 and 30 seconds")
-    if algorithm not in ("beam", "astar"):
-        raise ValueError("Search algorithm must be beam or astar")
     initial, target = _stacks(initial), _stacks(target)
     if {card for stack in initial for card in stack} != {card for stack in target for card in stack}:
         raise ValueError("Initial and target cards must match")
@@ -313,7 +275,7 @@ def optimize_plan(initial, target, fallback, *, seconds=2.0, algorithm="beam"):
     started = time.monotonic()
     deadline = started + seconds
     best = _erase_cycles(initial, fallback)
-    engine = _BestFirst(algorithm)
+    engine = _Beam()
     optimal = initial == target
     timed_out = False
     lower_bound = 0
@@ -329,18 +291,16 @@ def optimize_plan(initial, target, fallback, *, seconds=2.0, algorithm="beam"):
                 engine.timed_out = False
                 best, optimal, lower_bound = engine.search(initial, target, best, deadline)
                 timed_out = getattr(engine, "timed_out", False)
-                if algorithm == "beam":
-                    # A narrow beam can run out of candidates after pruning a
-                    # useful branch. Spend remaining time on wider restarts.
-                    while not optimal and not timed_out and engine.width < 512 and time.monotonic() < deadline:
-                        engine.width *= 2
-                        best, optimal, lower_bound = engine.search(initial, target, best, deadline)
-                        timed_out = engine.timed_out
+                # A narrow beam can run out of candidates after pruning a
+                # useful branch. Spend remaining time on wider restarts.
+                while not optimal and not timed_out and engine.width < 512 and time.monotonic() < deadline:
+                    engine.width *= 2
+                    best, optimal, lower_bound = engine.search(initial, target, best, deadline)
+                    timed_out = engine.timed_out
     except _Timeout:
         timed_out = True
     if apply_moves(initial, best) != target or len(best) > len(fallback):
         raise RuntimeError("Optimizer produced an invalid or longer plan")
     return OptimizationResult(best, len(fallback), lower_bound, optimal, timed_out,
                               engine.nodes, improvements, time.monotonic() - started,
-                              algorithm, getattr(engine, "memory_limited", False),
-                              engine.width if algorithm == "beam" else None)
+                              engine.memory_limited, engine.width)

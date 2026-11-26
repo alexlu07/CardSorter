@@ -25,7 +25,7 @@
     <textarea id="custom-deck" aria-describedby="custom-help custom-status" spellcheck="false" placeholder="1, 2, 3, …, 52"></textarea>
     <div class="custom-actions"><button id="copy-deck" type="button">Use current deck</button><button id="ordered-deck" type="button">1–52</button><button id="reversed-deck" type="button">52–1</button><span id="custom-status" role="status" aria-live="polite"></span></div>
   </section>
-  <div class="search-controls"><label class="search-toggle"><input id="optimize" type="checkbox">Improve plan</label><label>Search algorithm<select id="search-algorithm"><option value="beam" selected>Beam search</option><option value="astar">A*</option></select></label><label class="search-budget">Search seconds<input id="search-seconds" type="number" min="0" max="30" step="any" value="2" required form="seed-form"></label><p id="optimizer-status" role="status" aria-live="polite">Recipe plan. Enable search to try fewer moves.</p></div>
+  <div class="search-controls"><label class="search-toggle"><input id="optimize" type="checkbox">Improve plan</label><label class="search-budget">Search seconds<input id="search-seconds" type="number" min="0" max="30" step="any" value="2" required form="seed-form"></label><p id="optimizer-status" role="status" aria-live="polite">Recipe plan. Enable search to try fewer moves.</p></div>
   <section aria-label="Simulated card sorter">
     <div class="summary"><div><p id="stage-name" class="stage-name">Loading simulation…</p><p id="event-description" class="status-line" aria-live="polite">Preparing the scanned deck and sorting plan.</p></div><div class="counter"><span id="moves">0</span><small> / <span id="total-moves">—</span> moves</small></div><div class="progress-track"><div id="progress" class="progress-fill"></div></div></div>
     <div class="scene" id="scene"><div class="rollers" aria-hidden="true"><div class="roller left" id="roller-left"></div><div class="roller right" id="roller-right"></div></div><div class="machine">
@@ -237,7 +237,7 @@
   }
   async function load(seed = null, start = null, deck = null) {
     pause(); loading = true;
-    ['load','shuffle','play','step','back','finish','restart','timeline','seed','start','shuffle-mode','custom-deck','copy-deck','ordered-deck','reversed-deck','optimize','search-seconds','search-algorithm'].forEach(id => byId(id).disabled = true);
+    ['load','shuffle','play','step','back','finish','restart','timeline','seed','start','shuffle-mode','custom-deck','copy-deck','ordered-deck','reversed-deck','optimize','search-seconds'].forEach(id => byId(id).disabled = true);
     byId('stage-jumps').querySelectorAll('button').forEach(button => button.disabled = true);
     byId('error').textContent = '';
     byId('load').textContent = 'Planning…';
@@ -247,11 +247,9 @@
       if (seed !== null) query.set('seed', seed);
       if (start !== null) query.set('start', start);
       const optimize = byId('optimize').checked, search_seconds = Number(byId('search-seconds').value);
-      const search_algorithm = byId('search-algorithm').value;
       query.set('optimize', String(optimize));
       query.set('search_seconds', String(search_seconds));
-      query.set('search_algorithm', search_algorithm);
-      const response = deck === null ? await fetch(`/api/simulation?${query}`) : await fetch('/api/simulation', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({deck, start, optimize, search_seconds, search_algorithm})});
+      const response = deck === null ? await fetch(`/api/simulation?${query}`) : await fetch('/api/simulation', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({deck, start, optimize, search_seconds})});
       const restartMessage = 'This server is running an older visualizer. Stop it with Ctrl+C, restart python3 visualizer.py, then refresh this page. If that port is busy, use python3 visualizer.py --port 8766 and open http://127.0.0.1:8766.';
       if (response.status === 501) throw new Error(restartMessage);
       if (!(response.headers.get('Content-Type') || '').includes('application/json')) throw new Error(`Server returned HTTP ${response.status} instead of simulation data. Open the address printed by python3 visualizer.py.`);
@@ -266,8 +264,7 @@
       if (payload.shuffle_mode === 'custom') setCustomDeck(payload.deck);
       updateMode();
       const search = payload.optimization;
-      const labels = {beam:'Beam search', astar:'A*'};
-      byId('optimizer-status').textContent = search ? `${labels[search.search_algorithm]} · ${search.optimal ? 'Proven optimal after scanning' : search.saved_moves ? 'Best found · not proven optimal' : 'No improvement found · fallback retained'} · ${search.fallback_moves} → ${search.result_moves} remaining moves · saved ${search.saved_moves} · ${search.elapsed_seconds.toFixed(2)}s${search.timed_out ? ' · time limit reached' : ''}${search.memory_limited ? ' · memory limit reached' : ''}` : 'Recipe plan. Enable search to try fewer moves.';
+      byId('optimizer-status').textContent = search ? `Beam search · ${search.optimal ? 'Proven optimal after scanning' : search.saved_moves ? 'Best found · not proven optimal' : 'No improvement found · fallback retained'} · ${search.fallback_moves} → ${search.result_moves} remaining moves · saved ${search.saved_moves} · ${search.elapsed_seconds.toFixed(2)}s${search.timed_out ? ' · time limit reached' : ''}${search.memory_limited ? ' · memory limit reached' : ''}` : 'Recipe plan. Enable search to try fewer moves.';
       byId('timeline').max = data.events.length;
       byId('stage-jumps').replaceChildren();
       data.stages.forEach((stage, i) => {
@@ -279,7 +276,7 @@
     } catch (error) {byId('error').textContent = error.message; byId('optimizer-status').textContent = data ? 'Load failed. Previous simulation retained.' : 'Could not load simulation.';}
     finally {
       loading = false;
-      ['load','shuffle','restart','timeline','seed','start','shuffle-mode','custom-deck','copy-deck','ordered-deck','reversed-deck','optimize','search-seconds','search-algorithm'].forEach(id => byId(id).disabled = false);
+      ['load','shuffle','restart','timeline','seed','start','shuffle-mode','custom-deck','copy-deck','ordered-deck','reversed-deck','optimize','search-seconds'].forEach(id => byId(id).disabled = false);
       byId('stage-jumps').querySelectorAll('button').forEach(button => button.disabled = false);
       byId('load').textContent = 'Load deck';
       updateMode();
@@ -290,7 +287,6 @@
   byId('seed-form').addEventListener('submit', event => {event.preventDefault(); loadSelected();});
   byId('start').addEventListener('change', loadSelected);
   byId('optimize').addEventListener('change', loadSelected);
-  byId('search-algorithm').addEventListener('change', () => {if (byId('optimize').checked) loadSelected();});
   byId('shuffle-mode').addEventListener('change', updateMode);
   byId('custom-deck').addEventListener('input', customStatus);
   byId('copy-deck').addEventListener('click', () => {if (data) setCustomDeck(data.deck);});
