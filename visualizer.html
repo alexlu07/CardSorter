@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card sorter · Simulation</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1816;--panel:#152420;--line:#30463e;--text:#eef4e9;--muted:#afc2b5;--accent:#e9b66b;--felt:#193d31;--red:#b73547;--paper:#fff9ee;--ink:#172b24}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,sans-serif}button,input,select{font:inherit}button,select,input{border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);padding:9px 13px}button{cursor:pointer}button:hover:not(:disabled){border-color:var(--accent)}button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.primary{background:var(--accent);color:var(--ink);border-color:var(--accent);font-weight:650}h1,h2,p{margin:0}h1{font-size:clamp(26px,4vw,40px);letter-spacing:-1.5px;line-height:1.2}h2{font-size:18px;font-weight:550}main{max-width:1120px;margin:auto;padding:38px 24px 24px}.eyebrow{color:var(--accent);font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}.header{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:28px}.muted{color:var(--muted)}.seed-form{display:flex;align-items:end;gap:8px;flex-wrap:wrap}label{font-size:14px;color:var(--muted);display:grid;gap:5px}.seed-form input{width:125px}.summary{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;background:var(--panel);padding:20px 22px;border:1px solid var(--line);border-radius:12px 12px 0 0}.stage-name{font-size:19px}.status-line{font-size:14px;margin-top:4px;color:var(--muted)}.counter{font-size:30px;letter-spacing:-1px;font-variant-numeric:tabular-nums;text-align:right}.counter small{font-size:14px;color:var(--muted);letter-spacing:0}.scene{position:relative;background:radial-gradient(ellipse at top,#224d3c,var(--felt));padding:22px 20px 28px;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px}.machine{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:30px}.bay{text-align:center;min-width:0}.camera-space{height:54px;display:flex;justify-content:center;align-items:center}.camera{font-size:13px;border:1px solid #698675;background:#182b24;padding:7px 14px;border-radius:9px;color:#d8e9dc}.camera.scanning{background:var(--accent);color:var(--ink);box-shadow:0 0 28px #e9b66b55}.bay-head{min-height:54px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #456451;padding-bottom:9px}.count{font-variant-numeric:tabular-nums;color:#cbdccc}.stack-zone{height:330px;position:relative;display:flex;justify-content:center;padding-top:24px}.empty-label{position:absolute;top:65px;left:0;right:0;color:#9ab8a5;font-size:14px}.card-pile{position:relative;width:112px;height:160px;z-index:2}.playing-card{position:absolute;width:112px;height:150px;border-radius:9px;background:var(--paper);border:1px solid #bdc6b5;box-shadow:0 3px 5px #06170e28;color:var(--ink);text-align:left;user-select:none}.playing-card.red{color:var(--red)}.corner{position:absolute;top:8px;left:10px;font:600 21px/1.05 Georgia,serif;text-align:center}.corner.bottom{top:auto;left:auto;bottom:8px;right:10px;transform:rotate(180deg)}.suit-big{position:absolute;inset:28px 0 auto;text-align:center;font:62px Georgia,serif}.card-id{position:absolute;bottom:8px;left:10px;font-size:12px;color:#546255}.layer{border-color:#a8b9a8;box-shadow:none}.rollers{position:absolute;top:132px;left:0;right:0;height:26px;pointer-events:none;z-index:3}.roller{position:absolute;width:38px;height:26px;border:2px solid #a7b4aa;border-radius:16px;background:repeating-linear-gradient(90deg,#4b5b52 0 4px,#7b8d80 4px 7px);box-shadow:0 4px 5px #0005;transform:translateX(-50%)}.roller.left{left:33.333%}.roller.right{left:66.666%}.roller.active{border-color:var(--accent);box-shadow:0 0 18px #e9b66b99}.chips{display:flex;flex-wrap:wrap;gap:4px;align-content:flex-start;max-height:170px;overflow:auto;padding:2px 2px 8px;text-align:left}.chip{font-size:13px;background:var(--paper);color:var(--ink);border-radius:4px;padding:2px 5px;font-variant-numeric:tabular-nums}.chip.red{color:var(--red)}.chip.protected{background:#b0c1ad;color:#304a3c}.chip:first-child{outline:2px solid var(--accent);outline-offset:0}.stack-label{font-size:12px;text-align:left;color:#bad0bf;margin:0 0 9px}.controls{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap;margin:20px 0 14px}.buttons{display:flex;gap:8px;flex-wrap:wrap}.controls select{min-width:100px}.scrub-label{display:flex;justify-content:space-between;font-size:14px;color:var(--muted)}#timeline{width:100%;accent-color:var(--accent);padding:0;margin:12px 0 20px;cursor:pointer}.stage-jumps{display:flex;gap:6px;flex-wrap:wrap}.stage-jumps button{font-size:13px;padding:7px 10px}.stage-jumps button.active{background:var(--accent);color:var(--ink);border-color:var(--accent)}.footer{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:13px;margin-top:24px}.error{color:#ffc0ba;min-height:24px;margin-top:8px}.flight{position:fixed;z-index:50;pointer-events:none;box-shadow:0 10px 24px #0005;top:0;left:0}.complete{color:#d0e9b8}.progress-track{height:4px;background:#2d493d;grid-column:1/-1;border-radius:2px;overflow:hidden}.progress-fill{height:100%;background:var(--accent);width:0;transition:width .15s}.header-subtitle{margin-top:8px}.legend-protected{background:#b0c1ad;display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:5px}.busy{opacity:.6}.noscript{padding:24px;color:#ffc0ba}
+@media(max-width:680px){main{padding:24px 12px}.header{align-items:start;flex-direction:column;gap:18px}.scene{padding:15px 10px}.machine{gap:12px}.summary{padding:15px;gap:12px}.stage-name{font-size:16px}.counter{font-size:25px}.playing-card,.card-pile{width:80px}.playing-card{height:120px}.corner{font-size:17px;left:7px}.corner.bottom{right:7px}.suit-big{font-size:45px;top:24px}.stack-zone{height:300px}.bay-head{font-size:14px}.roller{width:27px}.camera{font-size:11px;padding:6px 9px}.chip{font-size:12px;padding:1px 3px}.chips{max-height:190px}.controls{gap:12px}.buttons button{padding:9px 10px}.footer{font-size:12px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+.custom-editor{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:20px}.custom-editor[hidden]{display:none}.custom-editor textarea{display:block;width:100%;resize:vertical;min-height:100px;max-height:350px;font:16px/1.6 ui-monospace,monospace;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;margin:10px 0}.custom-editor p{font-size:14px;color:var(--muted);margin-top:6px}.custom-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.custom-actions button{font-size:14px;padding:7px 10px}#custom-status{margin-left:auto;font-size:14px;color:var(--muted)}#custom-status.invalid{color:#ffc0ba}.seed-form [hidden]{display:none}
+.search-controls{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-bottom:18px}.search-toggle{display:flex;align-items:center;gap:9px;color:var(--text)}.search-toggle input{width:18px;height:18px;accent-color:var(--accent)}.search-budget{display:flex;align-items:center;gap:8px}.search-budget input{width:85px}#optimizer-status{font-size:14px;color:var(--muted);flex:1;min-width:230px}
+</style>
+</head>
+<body>
+<main>
+  <header class="header">
+    <div><p class="eyebrow">Three compartments · 52 cards</p><h1>Inside the card sorter.</h1><p class="muted header-subtitle">Watch the deck find its order, one transfer at a time.</p></div>
+    <form id="seed-form" class="seed-form"><label>Start &amp; finish<select id="start"><option value="left" selected>Left</option><option value="center">Middle</option><option value="right">Right</option></select></label><label>Deck order<select id="shuffle-mode"><option value="seeded">Seeded shuffle</option><option value="custom">Custom shuffle</option></select></label><label id="seed-field">Shuffle seed<input id="seed" type="number" step="1" value="42" required></label><button id="load" type="submit">Load deck</button><button id="shuffle" type="button">New shuffle</button></form>
+  </header>
+  <section id="custom-editor" class="custom-editor" hidden aria-label="Custom starting deck">
+    <label for="custom-deck">Custom deck · top → bottom</label>
+    <p id="custom-help">Enter all 52 card IDs, separated by commas, spaces, or newlines. The first is on top. Clubs 1–13, diamonds 14–26, hearts 27–39, spades 40–52; ace through king.</p>
+    <textarea id="custom-deck" aria-describedby="custom-help custom-status" spellcheck="false" placeholder="1, 2, 3, …, 52"></textarea>
+    <div class="custom-actions"><button id="copy-deck" type="button">Use current deck</button><button id="ordered-deck" type="button">1–52</button><button id="reversed-deck" type="button">52–1</button><span id="custom-status" role="status" aria-live="polite"></span></div>
+  </section>
+  <div class="search-controls"><label class="search-toggle"><input id="optimize" type="checkbox">Improve plan</label><label>Search algorithm<select id="search-algorithm"><option value="beam" selected>Beam search</option><option value="astar">A*</option><option value="ida">IDA*</option></select></label><label class="search-budget">Search seconds<input id="search-seconds" type="number" min="0" max="30" step="any" value="2" required form="seed-form"></label><p id="optimizer-status" role="status" aria-live="polite">Recipe plan. Enable search to try fewer moves.</p></div>
+  <section aria-label="Simulated card sorter">
+    <div class="summary"><div><p id="stage-name" class="stage-name">Loading simulation…</p><p id="event-description" class="status-line" aria-live="polite">Preparing the scanned deck and sorting plan.</p></div><div class="counter"><span id="moves">0</span><small> / <span id="total-moves">—</span> moves</small></div><div class="progress-track"><div id="progress" class="progress-fill"></div></div></div>
+    <div class="scene" id="scene"><div class="rollers" aria-hidden="true"><div class="roller left" id="roller-left"></div><div class="roller right" id="roller-right"></div></div><div class="machine">
+      <section class="bay" id="bay-left"><div class="camera-space"></div><div class="bay-head"><h2>Left</h2><span id="count-left" class="count">0 cards</span></div><div class="stack-zone"><span class="empty-label">Empty compartment</span><div id="pile-left" class="card-pile" role="img" aria-label="Left stack"></div></div><p class="stack-label">Top → bottom</p><div id="chips-left" class="chips" aria-label="Left cards in stack order"></div></section>
+      <section class="bay" id="bay-center"><div class="camera-space"><div id="camera" class="camera">Camera · <span id="scans">0</span>/52 scanned</div></div><div class="bay-head"><h2>Middle</h2><span id="count-center" class="count">52 cards</span></div><div class="stack-zone"><span class="empty-label">Empty compartment</span><div id="pile-center" class="card-pile" role="img" aria-label="Middle stack"></div></div><p class="stack-label">Top → bottom</p><div id="chips-center" class="chips" aria-label="Middle cards in stack order"></div></section>
+      <section class="bay" id="bay-right"><div class="camera-space"></div><div class="bay-head"><h2>Right</h2><span id="count-right" class="count">0 cards</span></div><div class="stack-zone"><span class="empty-label">Empty compartment</span><div id="pile-right" class="card-pile" role="img" aria-label="Right stack"></div></div><p class="stack-label">Top → bottom</p><div id="chips-right" class="chips" aria-label="Right cards in stack order"></div></section>
+    </div>
+  </section>
+  <div class="controls"><div class="buttons"><button id="restart" type="button">Restart</button><button id="back" type="button">Back</button><button id="play" type="button" class="primary">Play</button><button id="step" type="button">Step</button><button id="finish" type="button">Finish</button></div><label>Playback speed<select id="speed"><option value="1200">Slow</option><option value="650" selected>Normal</option><option value="220">Fast</option><option value="70">Very fast</option></select></label></div>
+  <div class="scrub-label"><label for="timeline">Event <span id="event-position">0 / 0</span></label><span id="card-total">52 cards accounted for</span></div><input id="timeline" type="range" min="0" max="0" value="0" aria-label="Scrub through camera scans and card transfers">
+  <nav id="stage-jumps" class="stage-jumps" aria-label="Jump to a sorting stage"></nav>
+  <p id="error" class="error" role="alert"></p>
+  <footer class="footer"><span>Simulation only · adjacent top-card transfers · maximum <span id="movement-budget">378</span> moves</span><span><span class="legend-protected"></span>Waiting / finished base · outlined card is top of stack</span></footer>
+  <noscript><p class="noscript">Enable JavaScript to play the simulation.</p></noscript>
+</main>
+<script>
+(() => {
+  'use strict';
+  const names = ['left', 'center', 'right'];
+  const suitSymbols = ['♣', '♦', '♥', '♠'];
+  const suitNames = ['clubs', 'diamonds', 'hearts', 'spades'];
+  const ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  const byId = id => document.getElementById(id);
+  let data = null, frames = [], cursor = 0, playing = false, timer = null, animation = null, flight = null, generation = 0, loading = false;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function parseCustomDeck() {
+    const text = byId('custom-deck').value.trim();
+    const tokens = text ? text.split(/[\s,]+/) : [];
+    if (tokens.some(token => !/^[0-9]+$/.test(token) || Number(token) < 1 || Number(token) > 52)) throw new Error('Every card must be an integer from 1 to 52.');
+    const deck = tokens.map(Number), counts = new Map();
+    deck.forEach(card => counts.set(card, (counts.get(card) || 0) + 1));
+    const duplicate = [...counts].filter(([,count]) => count > 1).map(([card]) => card).sort((a,b) => a-b);
+    const missing = Array.from({length:52}, (_,i) => i+1).filter(card => !counts.has(card));
+    if (deck.length !== 52 || duplicate.length || missing.length) {
+      const details = [`Expected 52 cards; received ${deck.length}`];
+      if (duplicate.length) details.push(`duplicates: ${duplicate.join(', ')}`);
+      if (missing.length) details.push(`missing: ${missing.join(', ')}`);
+      throw new Error(details.join('; '));
+    }
+    return deck;
+  }
+  function customStatus() {
+    try {parseCustomDeck(); byId('custom-status').textContent = '52 unique cards · ready to load'; byId('custom-status').classList.remove('invalid'); byId('custom-deck').setAttribute('aria-invalid','false');}
+    catch (error) {byId('custom-status').textContent = error.message; byId('custom-status').classList.add('invalid'); byId('custom-deck').setAttribute('aria-invalid','true');}
+  }
+  function setCustomDeck(deck) {byId('custom-deck').value = deck.join(', '); customStatus();}
+  function updateMode() {
+    const custom = byId('shuffle-mode').value === 'custom';
+    byId('custom-editor').hidden = !custom;
+    byId('seed-field').hidden = custom;
+    byId('seed').required = !custom;
+    byId('seed').disabled = custom || loading;
+    if (custom) {
+      if (!byId('custom-deck').value.trim()) setCustomDeck(data ? data.deck : Array.from({length:52}, (_,i) => i+1));
+      customStatus();
+    }
+  }
+  function loadSelected() {
+    if (loading) return;
+    const seconds = Number(byId('search-seconds').value);
+    if (!byId('search-seconds').value.trim() || !Number.isFinite(seconds) || seconds < 0 || seconds > 30) {byId('error').textContent = 'Search time must be between 0 and 30 seconds.'; byId('search-seconds').focus(); return;}
+    if (byId('shuffle-mode').value === 'custom') {
+      try {const deck = parseCustomDeck(); load(null, byId('start').value, deck);}
+      catch (error) {byId('error').textContent = error.message; customStatus(); byId('custom-deck').focus();}
+    } else load(byId('seed').value, byId('start').value);
+  }
+
+  function cardInfo(id) {
+    const suit = Math.floor((id - 1) / 13), rank = ranks[(id - 1) % 13];
+    return { rank, suit: suitSymbols[suit], red: suit === 1 || suit === 2, label: `${rank} of ${suitNames[suit]}` };
+  }
+  function cardElement(id, extra = '') {
+    const info = cardInfo(id), element = document.createElement('div');
+    element.className = `playing-card ${info.red ? 'red' : ''} ${extra}`;
+    element.setAttribute('aria-label', `${info.label}, value ${id}`);
+    element.innerHTML = `<span class="corner">${info.rank}<br>${info.suit}</span><span class="suit-big">${info.suit}</span><span class="corner bottom">${info.rank}<br>${info.suit}</span><span class="card-id">#${id}</span>`;
+    return element;
+  }
+  function stageAt(moves, scans) {
+    // A side feed can reach its last movement before the final camera event.
+    if (scans < 52) return 0;
+    return data.stages.findIndex(stage => moves < stage.end);
+  }
+  function buildFrames(payload) {
+    const initial = [[], [], []];
+    initial[names.indexOf(payload.start)] = payload.deck.slice();
+    const result = [{stacks:initial, moves:0, scans:0, event:null}];
+    for (const event of payload.events) {
+      const last = result[result.length - 1];
+      const next = {stacks:last.stacks.map(stack => stack.slice()), moves:last.moves, scans:last.scans, event};
+      if (event.kind === 'scan') {
+        if (next.stacks[1][0] !== event.card) throw new Error('Camera event does not match the top card.');
+        next.scans++;
+      } else {
+        const source = names.indexOf(event.source), destination = names.indexOf(event.destination);
+        if (Math.abs(source - destination) !== 1 || next.stacks[source][0] !== event.card) throw new Error('Invalid simulated transfer.');
+        next.stacks[destination].unshift(next.stacks[source].shift());
+        next.moves++;
+      }
+      result.push(next);
+    }
+    const final = result[result.length - 1];
+    const finish = names.indexOf(payload.finish);
+    if (finish !== names.indexOf(payload.start) || final.stacks.some((stack,index) => index === finish ? stack.length !== 52 || stack.some((v,i) => v !== i + 1) : stack.length !== 0) || final.moves !== payload.movements || final.scans !== 52 || final.moves > payload.movement_budget) throw new Error('Simulation validation failed.');
+    return result;
+  }
+  function protectedCount(index, frame) {
+    if (data.strategy === 'direct-side') {
+      const highGroup = data.stages.find(stage => stage.name.startsWith('2:'));
+      if (!highGroup || frame.moves < data.stages[0].end) return 0;
+      const source = names.indexOf(data.start), opposite = 2 - source;
+      if (frame.moves < highGroup.end) return index === opposite ? 8 : 0;
+      return index === source ? 44 : 0;
+    }
+    const stage2 = data.stages.find(stage => stage.name.startsWith('2C:'));
+    const stage3 = data.stages.find(stage => stage.name.startsWith('3C:'));
+    if (!stage2 || !stage3) return 0; // Search may change the recipe's boundaries.
+    if (frame.moves < data.stages.find(stage => stage.name.startsWith('1:')).end) return 0;
+    if (frame.moves < stage2.end) return index === 2 ? 32 : 0;
+    if (frame.moves < stage3.end) return index === 1 ? 20 : 0;
+    return 0;
+  }
+  function render() {
+    if (!data) return;
+    const frame = frames[cursor], event = frame.event, stage = stageAt(frame.moves, frame.scans);
+    names.forEach((name, index) => {
+      const stack = frame.stacks[index], pile = byId(`pile-${name}`), chips = byId(`chips-${name}`);
+      byId(`bay-${name}`).querySelector('.empty-label').hidden = stack.length > 0;
+      byId(`count-${name}`).textContent = `${stack.length} ${stack.length === 1 ? 'card' : 'cards'}`;
+      pile.replaceChildren(); chips.replaceChildren();
+      pile.setAttribute('aria-label', stack.length ? `${name}: ${stack.length} cards, ${cardInfo(stack[0]).label} on top` : `${name}: empty`);
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const card = i === 0 ? cardElement(stack[i]) : document.createElement('div');
+        if (i !== 0) {card.className = 'playing-card layer'; card.setAttribute('aria-hidden','true');}
+        card.style.top = `${i * 2.8}px`; card.style.zIndex = `${stack.length - i}`;
+        pile.append(card);
+      }
+      const protectedBottom = protectedCount(index, frame);
+      stack.forEach((id, i) => {
+        const info = cardInfo(id), chip = document.createElement('span');
+        const isProtected = i >= stack.length - protectedBottom;
+        chip.className = `chip ${info.red ? 'red' : ''} ${isProtected ? 'protected' : ''}`;
+        chip.textContent = `${info.rank}${info.suit}`;
+        chip.title = `${i + 1}: ${info.label}, value ${id}${isProtected ? ', protected' : ''}`;
+        chips.append(chip);
+      });
+    });
+    byId('stage-name').textContent = stage < 0 ? 'Complete · deck sorted' : data.stages[stage].name;
+    byId('stage-name').classList.toggle('complete', stage < 0);
+    byId('event-description').textContent = !event ? `Ready. All 52 cards start in the ${data.start === 'center' ? 'middle' : data.start} compartment.` : event.kind === 'scan' ? `Camera reads ${cardInfo(event.card).label} · value ${event.card}` : `${cardInfo(event.card).label} · ${event.source} → ${event.destination}`;
+    byId('moves').textContent = frame.moves;
+    byId('total-moves').textContent = data.movements;
+    byId('movement-budget').textContent = data.movement_budget;
+    byId('scans').textContent = frame.scans;
+    byId('camera').classList.toggle('scanning', event?.kind === 'scan');
+    byId('timeline').value = cursor;
+    byId('event-position').textContent = `${cursor} / ${data.events.length}`;
+    byId('progress').style.width = `${frame.moves / data.movements * 100}%`;
+    byId('card-total').textContent = `${frame.stacks.reduce((sum, s) => sum + s.length, 0)} cards accounted for`;
+    byId('back').disabled = loading || cursor === 0;
+    byId('step').disabled = loading || cursor === frames.length - 1;
+    byId('finish').disabled = loading || cursor === frames.length - 1;
+    byId('play').disabled = loading;
+    byId('play').textContent = playing ? 'Pause' : cursor === frames.length - 1 ? 'Replay' : 'Play';
+    [...byId('stage-jumps').children].forEach((button, i) => {button.classList.toggle('active', i === stage); button.setAttribute('aria-current', i === stage ? 'step' : 'false');});
+  }
+  function cancelMotion() {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    if (animation) animation.cancel();
+    animation = null;
+    if (flight) flight.remove();
+    flight = null;
+    byId('roller-left').classList.remove('active');
+    byId('roller-right').classList.remove('active');
+  }
+  function pause() {
+    generation++; playing = false; cancelMotion(); render();
+  }
+  function seek(position) {
+    pause(); cursor = Math.max(0, Math.min(frames.length - 1, position)); render();
+  }
+  async function tick(token) {
+    if (!playing || token !== generation) return;
+    if (cursor >= frames.length - 1) {pause(); return;}
+    const event = data.events[cursor], duration = Number(byId('speed').value);
+    if (event.kind === 'move') byId('camera').classList.remove('scanning');
+    if (event.kind === 'move' && !reducedMotion.matches && duration >= 200) {
+      const source = byId(`pile-${event.source}`).getBoundingClientRect(), destination = byId(`pile-${event.destination}`).getBoundingClientRect();
+      const roller = byId(event.source === 'left' || event.destination === 'left' ? 'roller-left' : 'roller-right');
+      roller.classList.add('active');
+      flight = cardElement(event.card, 'flight');
+      document.body.append(flight);
+      animation = flight.animate([{transform:`translate(${source.left}px,${source.top}px)`},{transform:`translate(${(source.left+destination.left)/2}px,${Math.min(source.top,destination.top)-55}px) rotate(${source.left < destination.left ? 7 : -7}deg)`},{transform:`translate(${destination.left}px,${destination.top}px)`}], {duration:duration*.75,easing:'ease-in-out',fill:'forwards'});
+      try {await animation.finished;} catch (_) {return;}
+      if (token !== generation) return;
+      cancelMotion();
+    }
+    cursor++; render();
+    if (cursor === frames.length - 1) {pause(); return;}
+    timer = setTimeout(() => tick(token), event.kind === 'move' && duration >= 200 && !reducedMotion.matches ? duration*.25 : duration);
+  }
+  function play() {
+    if (!data || loading) return;
+    if (playing) {pause(); return;}
+    if (cursor === frames.length - 1) cursor = 0;
+    playing = true; generation++; render(); tick(generation);
+  }
+  async function load(seed = null, start = null, deck = null) {
+    pause(); loading = true;
+    ['load','shuffle','play','step','back','finish','restart','timeline','seed','start','shuffle-mode','custom-deck','copy-deck','ordered-deck','reversed-deck','optimize','search-seconds','search-algorithm'].forEach(id => byId(id).disabled = true);
+    byId('stage-jumps').querySelectorAll('button').forEach(button => button.disabled = true);
+    byId('error').textContent = '';
+    byId('load').textContent = 'Planning…';
+    byId('optimizer-status').textContent = byId('optimize').checked ? `Searching for up to ${byId('search-seconds').value} seconds…` : 'Building recipe plan…';
+    try {
+      const query = new URLSearchParams();
+      if (seed !== null) query.set('seed', seed);
+      if (start !== null) query.set('start', start);
+      const optimize = byId('optimize').checked, search_seconds = Number(byId('search-seconds').value);
+      const search_algorithm = byId('search-algorithm').value;
+      query.set('optimize', String(optimize));
+      query.set('search_seconds', String(search_seconds));
+      query.set('search_algorithm', search_algorithm);
+      const response = deck === null ? await fetch(`/api/simulation?${query}`) : await fetch('/api/simulation', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({deck, start, optimize, search_seconds, search_algorithm})});
+      const restartMessage = 'This server is running an older visualizer. Stop it with Ctrl+C, restart python3 visualizer.py, then refresh this page. If that port is busy, use python3 visualizer.py --port 8766 and open http://127.0.0.1:8766.';
+      if (response.status === 501) throw new Error(restartMessage);
+      if (!(response.headers.get('Content-Type') || '').includes('application/json')) throw new Error(`Server returned HTTP ${response.status} instead of simulation data. Open the address printed by python3 visualizer.py.`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not load simulation.');
+      if (payload.api_version !== 5) throw new Error(restartMessage);
+      const prepared = buildFrames(payload);
+      data = payload; frames = prepared; cursor = 0;
+      if (payload.seed !== null) byId('seed').value = payload.seed;
+      byId('start').value = payload.start;
+      byId('shuffle-mode').value = payload.shuffle_mode;
+      if (payload.shuffle_mode === 'custom') setCustomDeck(payload.deck);
+      updateMode();
+      const search = payload.optimization;
+      const labels = {beam:'Beam search', astar:'A*', ida:'IDA*'};
+      byId('optimizer-status').textContent = search ? `${labels[search.search_algorithm]} · ${search.optimal ? 'Proven optimal after scanning' : search.saved_moves ? 'Best found · not proven optimal' : 'No improvement found · fallback retained'} · ${search.fallback_moves} → ${search.result_moves} remaining moves · saved ${search.saved_moves} · ${search.elapsed_seconds.toFixed(2)}s${search.timed_out ? ' · time limit reached' : ''}${search.memory_limited ? ' · memory limit reached' : ''}` : 'Recipe plan. Enable search to try fewer moves.';
+      byId('timeline').max = data.events.length;
+      byId('stage-jumps').replaceChildren();
+      data.stages.forEach((stage, i) => {
+        const button = document.createElement('button'); button.type = 'button';
+        button.textContent = stage.name.split(':')[0]; button.title = `${stage.name} · ${stage.end-stage.start} moves`;
+        button.addEventListener('click', () => seek(i === 0 ? 0 : frames.findIndex(frame => frame.moves === stage.start && frame.scans === 52)));
+        byId('stage-jumps').append(button);
+      });
+    } catch (error) {byId('error').textContent = error.message; byId('optimizer-status').textContent = data ? 'Load failed. Previous simulation retained.' : 'Could not load simulation.';}
+    finally {
+      loading = false;
+      ['load','shuffle','restart','timeline','seed','start','shuffle-mode','custom-deck','copy-deck','ordered-deck','reversed-deck','optimize','search-seconds','search-algorithm'].forEach(id => byId(id).disabled = false);
+      byId('stage-jumps').querySelectorAll('button').forEach(button => button.disabled = false);
+      byId('load').textContent = 'Load deck';
+      updateMode();
+      if (data) render();
+      else ['play','step','back','finish','restart','timeline'].forEach(id => byId(id).disabled = true);
+    }
+  }
+  byId('seed-form').addEventListener('submit', event => {event.preventDefault(); loadSelected();});
+  byId('start').addEventListener('change', loadSelected);
+  byId('optimize').addEventListener('change', loadSelected);
+  byId('search-algorithm').addEventListener('change', () => {if (byId('optimize').checked) loadSelected();});
+  byId('shuffle-mode').addEventListener('change', updateMode);
+  byId('custom-deck').addEventListener('input', customStatus);
+  byId('copy-deck').addEventListener('click', () => {if (data) setCustomDeck(data.deck);});
+  byId('ordered-deck').addEventListener('click', () => setCustomDeck(Array.from({length:52}, (_,i) => i+1)));
+  byId('reversed-deck').addEventListener('click', () => setCustomDeck(Array.from({length:52}, (_,i) => 52-i)));
+  byId('shuffle').addEventListener('click', () => {const random = new Uint32Array(1); crypto.getRandomValues(random); byId('shuffle-mode').value = 'seeded'; updateMode(); load(random[0], byId('start').value);});
+  byId('play').addEventListener('click', play);
+  byId('restart').addEventListener('click', () => seek(0));
+  byId('back').addEventListener('click', () => seek(cursor - 1));
+  byId('step').addEventListener('click', () => seek(cursor + 1));
+  byId('finish').addEventListener('click', () => seek(frames.length - 1));
+  byId('timeline').addEventListener('input', event => seek(Number(event.target.value)));
+  byId('speed').addEventListener('change', () => {if (playing) {pause(); play();}});
+  window.addEventListener('resize', () => {if (playing) pause();});
+  window.addEventListener('keydown', event => {if (event.code === 'Space' && event.target === document.body) {event.preventDefault(); play();}});
+  load();
+})();
+</script>
+</body>
+</html>
