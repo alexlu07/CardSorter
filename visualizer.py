@@ -39,7 +39,7 @@ def simulation(seed=None, start="left", *, deck=None, optimize=False, search_sec
         deck = list(range(1, 53))
         random.Random(seed).shuffle(deck)
     hardware = SimulatedHardware(deck, start=start)
-    state = CardSorter(hardware, start=start, optimize=optimize, search_seconds=search_seconds).run(deck=deck)
+    state = CardSorter(hardware, start=start, optimize=optimize, search_seconds=search_seconds).run()
     expected = [(), (), ()]
     expected[("left", "center", "right").index(start)] = tuple(range(1, 53))
     if state.stacks != tuple(expected):
@@ -58,15 +58,13 @@ def simulation(seed=None, start="left", *, deck=None, optimize=False, search_sec
     for event in hardware.events:
         if event[0] == "scan":
             events.append({"kind": "scan", "card": event[1]})
-        elif event[0] == "transfer":
-            events.append({"kind": "move", "source": "center", "destination": event[1], "card": event[2]})
         elif event[0] == "move":
             events.append({"kind": "move", "source": event[1], "destination": event[2], "card": event[3]})
     return {"api_version": 5, "seed": None if custom else str(seed), "shuffle_mode": "custom" if custom else "seeded",
             "deck": deck, "events": events, "stages": stages,
             "movements": state.movements_confirmed, "start": start, "finish": start,
             "movement_budget": state.movement_budget, "optimization": state.optimization,
-            "strategy": state.strategy}
+            "strategy": state.strategy, "scans": sum(event["kind"] == "scan" for event in events)}
 
 
 class Handler(BaseHTTPRequestHandler):

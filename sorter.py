@@ -2,25 +2,20 @@
 
 from dataclasses import dataclass
 import math
-from typing import Protocol
 
-from card_sorter import bounds
-from combined_sorter import plan as plan_deck
-from cards import DealState, Hardware, InitialDealer, SideDealer
-from card_sort_planner import SortPlan, plan_remaining, plan_side_remaining, side_movement_budget
+from combined_sorter import BOUND, get_planner
+from cards import DealState, Hardware, ScanDealer
 from exact_stack_planner import Move, apply_moves
 from heuristic_planner import optimize_plan
 
+NAMES = {"L": "left", "C": "center", "R": "right"}
 
-class SortingHardware(Hardware, Protocol):
-    def move_one(self, source: str, destination: str) -> None:
-        """Transfer one top card along an adjacent path, then stop.
 
-        Same delivery confirmation, single-feed, and bounded timeout requirements
-        as transfer_one(). Both directions must be supported on each path.
-        Raise on uncertainty; the caller will not retry.
-        """
-        ...
+@dataclass(frozen=True)
+class SortPlan:
+    moves: tuple[Move, ...]
+    # End offsets in moves, counted after the scan moves.
+    stages: tuple[tuple[str, int], ...]
 
 
 @dataclass
@@ -29,15 +24,14 @@ class SortState:
     start: str = "left"
     dealing_stages: tuple[tuple[str, int], ...] = ()
     stacks: tuple | None = None
-    phase: str = "1: scan and distribute"
+    phase: str = "1: scan and route"
     plan: SortPlan | None = None
     sorting_moves_confirmed: int = 0
     pending_move: Move | None = None
     completed: bool = False
     fault: str | None = None
     optimization: dict | None = None
-
-    prescanned: bool = False
+    strategy: str = "scan-split"
 
     @property
     def movements_confirmed(self):
@@ -45,19 +39,12 @@ class SortState:
 
     @property
     def movement_budget(self):
-        if self.prescanned:
-            return bounds(start=self.start[0].upper())[0]
-        return 350 if self.start == "center" else side_movement_budget()
-
-    @property
-    def strategy(self):
-        if self.prescanned:
-            return "prescanned-combined"
-        return "middle-partition-and-merge" if self.start == "center" else "direct-side"
+        """Certified worst case, scan moves included: 322 from the middle, 350 from a side."""
+        return BOUND[self.start[0].upper()]
 
 
 class CardSorter:
-    def __init__(self, hardware: SortingHardware, *, start: str = "left", optimize: bool = False,
+    def __init__(self, hardware: Hardware, *, start: str = "left", optimize: bool = False,
                  search_seconds: float = 2.0):
         if start not in ("left", "center", "right"):
             raise ValueError("Start must be left, center, or right")
@@ -66,38 +53,32 @@ class CardSorter:
         self.hardware = hardware
         self.optimize = optimize
         self.search_seconds = search_seconds
-        self.dealer = InitialDealer(hardware) if start == "center" else SideDealer(hardware, start=start)
+        self.dealer = ScanDealer(hardware, start=start)
         self.state = SortState(self.dealer.state, start=start)
         self._started = False
 
-    def run(self, *, deck=None) -> SortState:
+    def run(self) -> SortState:
+        """Scan and route every card (phase 1), then plan and execute the rest."""
         if self._started:
             raise RuntimeError("Sorter already used; reconcile physical stacks before restarting")
         self._started = True
         try:
-            if deck is None:
-                self.state.phase = "1: scan and distribute" if self.state.start == "center" else "1: feed through camera and partition"
-                deal = self.dealer.run()
-                self.state.dealing_stages = ((self.state.phase, deal.confirmed_moves),)
-                self.state.stacks = (tuple(deal.left), tuple(deal.center), tuple(deal.right))
-                self.state.phase = "planning"
-                # Plan and verify every remaining move before operating more motors.
-                if self.state.start == "center":
-                    plan = plan_remaining(deal.left, deal.right)
-                else:
-                    opposite = deal.right if self.state.start == "left" else deal.left
-                    plan = plan_side_remaining(deal.center, opposite, start=self.state.start)
-            else:
-                cards = tuple(deck)
-                if len(cards) != 52:
-                    raise ValueError("Hardware execution requires 52 cards")
-                self.state.prescanned = True
-                self.state.phase = "planning"
-                names = {"L": "left", "C": "center", "R": "right"}
-                route = plan_deck(cards, start=self.state.start[0].upper())
-                moves = tuple(Move(card, names[src], names[dst]) for src, dst, card in route)
-                plan = SortPlan(moves, (("Sort scanned deck", len(moves)),))
-                self.state.stacks = tuple(cards if name == self.state.start else () for name in names.values())
+            self.state.phase = "1: scan and route"
+            deal = self.dealer.run()
+            self.state.dealing_stages = ((self.state.phase, deal.confirmed_moves),)
+            self.state.phase = "planning"
+            # Every card is now known. Plan and verify all remaining moves before moving more.
+            deck = self.dealer.deck()
+            letter = self.state.start[0].upper()
+            route = get_planner().plan_scanned(deck, start=letter)
+            head = len(self.dealer.moves)
+            if [(NAMES[m.source], NAMES[m.destination], m.card) for m in route[:head]] != self.dealer.moves:
+                raise RuntimeError("Planner and scan disagree about the scan moves")
+            initial = tuple(tuple(deck) if name == self.state.start else () for name in NAMES.values())
+            scan = tuple(Move(m.card, NAMES[m.source], NAMES[m.destination]) for m in route[:head])
+            self.state.stacks = apply_moves(initial, scan)
+            moves = tuple(Move(m.card, NAMES[m.source], NAMES[m.destination]) for m in route[head:])
+            plan = SortPlan(moves, (("2: finish from the scanned layout", len(moves)),))
             expected = [(), (), ()]
             expected[("left", "center", "right").index(self.state.start)] = tuple(range(1, 53))
             if apply_moves(self.state.stacks, plan.moves) != tuple(expected):

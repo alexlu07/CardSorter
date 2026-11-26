@@ -18,6 +18,11 @@ For each deck:
   4. The shortest result is replayed by card_sorter.verify. The planner asserts
      that it is within the certified bound.
 
+The machine itself does not know the order in advance: its camera reads only the top of the
+starting pile. Planner.plan_scanned plans the scan-first version (phase 1 routes each card by
+value as the camera reads it; phase 2 uses the candidates and polishing above on the known
+layout), with the same 322 / 350 bounds.
+
 Decks are top first. Moves are card_sorter.Move(source, destination, card), adjacent only.
 
     python combined_sorter.py --seed 42 --start L
@@ -71,19 +76,22 @@ class Planner:
         return out
 
     # -- polishing ------------------------------------------------------------------------
-    def window_repair(self, deck, moves, home, kmin=1, kmax=K, solver=None):
-        """Replace windows that move kmin..kmax cards by exact optima. Returns (moves, changed)."""
+    def window_repair(self, deck, moves, home, kmin=1, kmax=K, solver=None, head=0, tail=0):
+        """Replace windows that move kmin..kmax cards by exact optima. Returns (moves, changed).
+
+        The first `head` and last `tail` moves are frozen (already executed) and never change.
+        """
         solver = solver or self._exact
         moves = list(moves)
         changed = False
-        t1 = 0
+        t1 = head
         while True:
             confs, cards = B._simulate(deck, moves, home)
             m = len(moves)
             hit = None
-            while t1 < m and hit is None:
+            while t1 < m - tail and hit is None:
                 S = set()
-                for t2 in range(t1 + 1, m + 1):
+                for t2 in range(t1 + 1, m - tail + 1):
                     S.add(cards[t2 - 1])
                     k = len(S)
                     if k > kmax:
@@ -118,7 +126,7 @@ class Planner:
             t2, new = hit
             moves = moves[:t1] + new + moves[t2:]
             changed = True
-            t1 = max(0, t1 - 1)
+            t1 = max(head, t1 - 1)
 
     def _exact(self, segs, order, X, length):
         """Shortest moves from top segments `segs` to `order` (top first) on stack X, if < length."""
@@ -145,32 +153,34 @@ class Planner:
             return None
         return [(A.NAMES[A.EDGES[c][0]], A.NAMES[A.EDGES[c][1]]) for c in codes]
 
-    def deep_polish(self, deck, moves, home, kmax=11):
+    def deep_polish(self, deck, moves, home, kmax=11, head=0):
         """polish, then also repair windows of K+1..kmax cards with A* search, forwards and reversed."""
         inv = inverse(deck)
         while True:
             before = len(moves)
-            moves, _ = self.window_repair(deck, moves, home, K + 1, kmax, self._exact_search)
-            back, _ = self.window_repair(inv, time_reverse(moves), home, K + 1, kmax, self._exact_search)
-            moves = self.polish_both_ways(deck, time_reverse(back), home)
+            moves, _ = self.window_repair(deck, moves, home, K + 1, kmax, self._exact_search, head=head)
+            back, _ = self.window_repair(inv, time_reverse(moves), home, K + 1, kmax, self._exact_search,
+                                         tail=head)
+            moves = self.polish_both_ways(deck, time_reverse(back), home, head=head)
             if len(moves) >= before:
                 return moves
 
-    def polish(self, deck, moves, home):
-        moves = cancel(moves)
+    def polish(self, deck, moves, home, head=0, tail=0):
+        moves = cancel(moves, head, tail)
         while True:
             before = len(moves)
-            moves = B.remove_pointless_excursions(deck, moves, home)
-            moves, _ = self.window_repair(deck, moves, home)
+            moves = remove_excursions(deck, moves, home, head, tail)
+            moves, _ = self.window_repair(deck, moves, home, head=head, tail=tail)
             if len(moves) == before:
                 return moves
 
-    def polish_both_ways(self, deck, moves, home):
-        best = self.polish(deck, moves, home)
+    def polish_both_ways(self, deck, moves, home, head=0):
+        """Polish forwards and as the time reversal (inverse deck). The first `head` moves stay fixed."""
+        best = self.polish(deck, moves, home, head=head)
         inv = inverse(deck)
         while True:
-            back = time_reverse(self.polish(inv, time_reverse(best), home))
-            fwd = self.polish(deck, back, home)
+            back = time_reverse(self.polish(inv, time_reverse(best), home, tail=head))
+            fwd = self.polish(deck, back, home, head=head)
             if len(fwd) >= len(best):
                 return best
             best = fwd
@@ -204,6 +214,140 @@ class Planner:
             report['best'] = best_name
         return out
 
+
+    # -- scanning start (the deck order is unknown until the camera reads it) -------------
+    def plan_scanned(self, deck, start='C', split=None, report=None, hold=None):
+        """Plan for a machine whose camera sees only the top card of the starting compartment.
+
+        Phase 1 (online, scan_moves): each card is read on top of the starting pile and sent
+        by value: values above n - a go to pile Pb, the rest to Pt (see SCAN_SPLIT). Scanning
+        stops once n - 1 cards are read, because the bottom card is then known; an already
+        correct bottom card or pair never moves. From a side, cards bound for the far side
+        wait on C (hold) and are only pushed on when a card bound for C is read.
+        Phase 2 (full information) starts from the actual layout. Either the held cards go
+        on to the far side (the certified route) or the far pile is gathered onto C on top of
+        them. Then the upper block is sorted onto home and the lower block on top of it. Every
+        block planner is tried (A's certified recursion, the merge DP, each forwards and
+        time-reversed; B's hub DP when the layout allows), then the plan after phase 1 is
+        polished. Returns verified Move records; the first len(scan_moves(...)[0]) are phase 1.
+        """
+        cards = A._deck(deck)
+        home = 'C' if start == 'C' else 'L'
+        deck = list(cards)
+        n = len(deck)
+        a, Pb, Pt = split or SCAN_SPLIT[home]
+        a = min(a, n - 1) if n > 1 else n
+        t = n - a
+        split = (a, Pb, Pt)
+        hold = SCAN_HOLD if hold is None else hold
+        head, kept = scan_moves(deck, home, split, hold)
+        active = deck[:n - kept]  # the kept bottom cards are n - kept + 1 .. n, in place
+        m = len(active)
+        st = B._start(deck, home)
+        for x, y in head:
+            st[y].append(st[x].pop())
+        far = Pb if Pb != 'C' else Pt
+        far_group = (lambda v: v > t) if far == Pb else (lambda v: v <= t)
+        held = 0
+        while held < len(st['C']) and home != 'C' and far_group(st['C'][-1 - held]):
+            held += 1
+
+        def layout(prefix):
+            """Top-first contents of every stack after head + prefix."""
+            cur = {x: list(v) for x, v in st.items()}
+            for x, y in prefix:
+                cur[y].append(cur[x].pop())
+            return {x: v[::-1] for x, v in cur.items()}
+
+        pool = []
+        # Certified route: push the held cards on, then sort each pile.
+        flush = [('C', far)] * held
+        lay = layout(flush)
+        ub = self._block_candidates(lay[Pb], Pb, home)
+        lb = self._block_candidates(lay[Pt] if Pt != home else lay[Pt][:len(lay[Pt]) - kept], Pt, home)
+        for un, um in ub[:2]:
+            for ln, lm in lb[:2]:
+                pool.append((f'{un}+{ln}', head + flush + um + lm))
+        certified = len(pool[0][1])  # A's certified block plans (or better) for both piles
+        if home != 'C' and far == Pb and lay[far]:
+            # Gather the far pile onto C, above the held cards, and sort the upper block from C.
+            gather = [(far, 'C')] * len(st[far])
+            lay = layout(gather)
+            k = sum(1 for v in active if v > t)
+            ub = self._block_candidates(lay['C'][:k], 'C', home)
+            lb = self._block_candidates(lay['C'][k:], 'C', home)
+            for un, um in ub[:2]:
+                for ln, lm in lb[:2]:
+                    pool.append((f'gather:{un}+{ln}', head + gather + um + lm))
+        if m > K and 0 < t < m and head == scan_moves(deck, home, split, False)[0]:
+            hub = self.hub[home]
+            _, choice = hub.plan(active)
+            choice = dict(choice)
+            choice[(1, m, home, 0)] = ('split', t, Pb, Pt)
+            moves = hub.execute(active, choice)
+            if moves[:len(head)] == head:
+                pool.append(('B', moves))
+        polished = []
+        for name, moves in pool:
+            assert B.verify(deck, moves, home)['ok'], name
+            pm = self.polish_both_ways(deck, moves, home, head=len(head))
+            if report is not None:
+                report[name] = (len(moves), len(pm))
+            polished.append((len(pm), name, pm))
+        polished.sort(key=lambda c: c[0])
+        best_name, best = polished[0][1], polished[0][2]
+        for _, name, moves in polished[:2]:
+            deep = self.deep_polish(deck, moves, home, head=len(head))
+            if len(deep) < len(best):
+                best_name, best = name + '+deep', deep
+        assert best[:len(head)] == head and len(best) <= certified
+        if start == 'R':
+            best = [(MIRROR[x], MIRROR[y]) for x, y in best]
+        out = label(cards, best, start)
+        cost = A.verify(cards, out, start=start)
+        if n == 52:
+            assert cost <= BOUND[start], (cost, best_name)
+        if report is not None:
+            report['best'] = best_name
+        return out
+
+    def _block_candidates(self, seq, S, T):
+        """(name, moves) for taking block `seq` (top first) from S to sorted on T, smallest on top.
+        Moves are computed as if the block were alone (valid above frozen cards). Shortest first."""
+        if not seq:
+            return [('empty', [])]
+        k = len(seq)
+        pos = {v: i for i, v in enumerate(seq, 1)}
+        back = [pos[v] for v in sorted(seq)]  # time-reversed problem: T -> S, relabelled
+        ix = {'L': 0, 'C': 1, 'R': 2}
+        out = []
+
+        def a_moves(cards, s, t, mean_first, outer):
+            path = A._construct(tuple(cards), tuple(sorted(cards)), ix[s], ix[t], mean_first, outer)
+            return [(A.NAMES[A.EDGES[c][0]], A.NAMES[A.EDGES[c][1]]) for c, _ in A._shorten(path)]
+
+        for mean_first in (False, True):
+            for outer in (True, False):
+                tag = f"A{'m' if mean_first else 'w'}{'x' if outer else ''}"
+                out.append((tag, a_moves(seq, S, T, mean_first, outer)))
+                if S != T or k > 1:
+                    out.append((tag + 'r', time_reverse(a_moves(back, T, S, mean_first, outer))))
+                if k < len(A.LEAVES):
+                    break  # exact leaf: the variants are identical
+            if k < len(A.LEAVES):
+                break
+        dp = MergeDP(self)
+        dp.solve(seq)
+        out.append(('M', cancel(dp.execute_block(seq, S, T))))
+        dp.solve(back)
+        out.append(('Mr', time_reverse(cancel(dp.execute_block(back, T, S)))))
+        out = [(name, self.polish_block(seq, S, T, moves)) for name, moves in out]
+        out.sort(key=lambda c: len(c[1]))
+        return out
+
+    def polish_block(self, seq, S, T, moves):
+        """Cheap cancellation on an isolated block plan (full polishing runs later)."""
+        return cancel(moves)
 
 class MergeDP:
     """Per-deck optimisation over Strategy A's family (recursive position split and merge).
@@ -325,8 +469,15 @@ class MergeDP:
         return self._dist(S, cfg)
 
     def execute(self, deck, home):
+        """Moves for the solved deck, starting on home and ending sorted on home."""
+        return self.execute_block(deck, home, home)
+
+    def execute_block(self, deck, S, T):
+        """Moves (as if alone) taking the solved sequence `deck` (top first) from S to sorted
+        on T, smallest on top. By the projection lemma they stay valid above frozen cards."""
         n = len(deck)
-        st = B._start(deck, home)
+        st = {x: [] for x in STACKS3}
+        st[S] = list(reversed(deck))
         moves = []
 
         def go(x, y, mir):
@@ -391,7 +542,7 @@ class MergeDP:
             for card in feed[cut:]:
                 go(U if card in g1 else V, T, mir)
 
-        run(0, n, home, home, 0, False)
+        run(0, n, S, T, 0, False)
         return moves
 
     def _walk(self, G, segs, rank):
@@ -414,6 +565,67 @@ class MergeDP:
 STACKS3 = ('L', 'C', 'R')
 
 
+# Phase-1 split for a scanning start: (a, Pb, Pt). The a largest values go to Pb, the rest
+# to Pt. Each option keeps the certified bound (322 centre, 350 side); see scan_bound().
+SCAN_SPLIT = {'C': (30, 'R', 'L'), 'L': (21, 'R', 'C')}
+# From a side, far-bound cards wait on C until a C-bound card is read (see scan_moves).
+SCAN_HOLD = True
+
+
+def scan_destination(value, home, n=52, split=None):
+    """Where a card goes once the camera has read it on top of C (physical home C or L)."""
+    a, Pb, Pt = split or SCAN_SPLIT[home]
+    return Pb if value > n - a else Pt
+
+
+def scan_kept(deck, home=None):
+    """Bottom cards the scan leaves in place. The camera reads the top of the starting pile,
+    so n - 1 cards must be read; the bottom card is then known by elimination. The last card
+    read is still on the pile, so a correct bottom pair can stay."""
+    n = len(deck)
+    kept = 0
+    while kept < min(n, 2) and deck[n - 1 - kept] == n - kept:
+        kept += 1
+    return kept
+
+
+def scan_moves(deck, home, split=None, hold=True):
+    """(phase-1 moves, kept) on the physical home C or L.
+
+    Each card is read on top of the home pile before it moves, then routed by value. From a
+    side with hold=True, a card bound for the far side moves to C and waits there; waiting
+    cards are pushed on to the far side only when a card bound for C is read. Cards still
+    waiting at the end stay on C (phase 2 decides). The `kept` bottom cards never move."""
+    kept = scan_kept(deck, home)
+    moves = []
+    held = 0
+    for v in deck[:len(deck) - kept]:
+        dest = scan_destination(v, home, len(deck), split)
+        if home == 'C':
+            moves.append(('C', dest))
+        elif dest == 'C':
+            moves += [('C', MIRROR[home])] * held + [(home, 'C')]
+            held = 0
+        elif hold:
+            moves.append((home, 'C'))
+            held += 1
+        else:
+            moves += [(home, 'C'), ('C', dest)]
+    return moves, kept
+
+
+def scan_bound(n=52, home='C', split=None):
+    """Certified worst case for plan_scanned: the scan moves plus the best of A's and B's
+    worst-case block bounds for each pile."""
+    a, Pb, Pt = split or SCAN_SPLIT[home]
+    ix = {'L': 0, 'C': 1, 'R': 2}
+    V, _ = B.worst_case_table(n, get_planner().tables[home].worst_cases(), home)
+
+    def block(k, s):
+        return min(A._bound(k, ix[s], ix[home], False, True)[0], V[s][k]) if k else 0
+    return a * B.dcost(home, Pb) + (n - a) * B.dcost(home, Pt) + block(a, Pb) + block(n - a, Pt)
+
+
 def inverse(deck):
     inv = [0] * len(deck)
     for i, v in enumerate(deck):
@@ -425,14 +637,55 @@ def time_reverse(moves):
     return [(d, s) for s, d in reversed(moves)]
 
 
-def cancel(moves):
+def cancel(moves, head=0, tail=0):
+    """Delete adjacent inverse pairs, except inside the frozen first `head` / last `tail` moves."""
+    moves = list(moves)
+    end = len(moves) - tail
     out = []
-    for mv in moves:
+    for mv in moves[head:end]:
         if out and out[-1] == INVERSE[mv]:
             out.pop()
         else:
             out.append(mv)
-    return out
+    return moves[:head] + out + moves[end:]
+
+
+def remove_excursions(deck, moves, home, head=0, tail=0):
+    """hubsort.remove_pointless_excursions, restricted to moves outside the frozen ends.
+
+    Delete c: X->Y (time i) ... c: Y->X (time j) when, in between, stack X never drops below
+    the level it had without c and is back at exactly that level at time j.
+    """
+    moves = list(moves)
+    idx = {'L': 0, 'C': 1, 'R': 2}
+    while True:
+        st = B._start(deck, home)
+        cards, heights = [], []
+        for s, d in moves:
+            heights.append((len(st['L']), len(st['C']), len(st['R'])))
+            st[d].append(st[s].pop())
+            cards.append(st[d][-1])
+        heights.append((len(st['L']), len(st['C']), len(st['R'])))
+        m = len(moves) - tail
+        done = False
+        for i in range(head, m):
+            X, Y = moves[i]
+            c = cards[i]
+            hx = heights[i][idx[X]] - 1
+            j = i + 1
+            ok = True
+            while j < m and cards[j] != c:
+                if heights[j + 1][idx[X]] < hx:
+                    ok = False
+                    break
+                j += 1
+            if ok and j < m and moves[j] == (Y, X) and heights[j][idx[X]] == hx:
+                del moves[j]
+                del moves[i]
+                done = True
+                break
+        if not done:
+            return moves
 
 
 def label(deck, moves, start):

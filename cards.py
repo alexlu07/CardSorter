@@ -44,18 +44,19 @@ class Hardware(Protocol):
         ...
 
     def scan_top(self) -> int:
-        """Fresh capture of the stationary middle top card; return ID 1..52.
+        """Fresh capture of the stationary top card of the starting compartment; return ID 1..52.
 
         Reject unreadable/ambiguous images. Do not move the card or reuse a
         cached frame. Recognition is the adapter's responsibility.
         """
         ...
 
-    def transfer_one(self, destination: Side) -> None:
-        """Move exactly one middle card to an adjacent stack, then stop.
+    def move_one(self, source: str, destination: str) -> None:
+        """Transfer one top card between adjacent compartments, then stop.
 
-        Return only after sensors confirm delivery and the path is clear.
-        The next card must be stationary and exposed for the next scan.
+        Return only after sensors confirm delivery and the path is clear. A card
+        that lands in the middle must be stationary and exposed for the next scan.
+        Raise on uncertainty; the caller will not retry.
         """
         ...
 
@@ -82,109 +83,102 @@ class DealState:
         return self.source_remaining
 
 
-class InitialDealer:
-    """Single-use controller. Retains confirmed progress if hardware fails."""
+class ScanDealer:
+    """Phase 1: read every card on top of the starting pile and route it by value.
 
-    def __init__(self, hardware: Hardware, *, descending: bool = False):
-        self.hardware = hardware
-        self.descending = descending
-        self.state = DealState()
-        self._started = False
-
-    def run(self) -> DealState:
-        if self._started:
-            raise RuntimeError("Controller already used; reconcile physical stacks before restarting")
-        self._started = True
-        seen: set[int] = set()
-        try:
-            self.hardware.stop()
-            for _ in range(52):
-                value = self.hardware.scan_top()
-                card_name(value)  # Validate before enabling any movement.
-                if value in seen:
-                    raise ValueError(f"Duplicate scan: {card_name(value)}")
-                self.state.scanned_cards.append(value)
-                # Plan in reversed value order when returning to a side stack.
-                sort_value = 53 - value if self.descending else value
-                destination = Side.LEFT if sort_value >= 33 else Side.RIGHT
-                self.state.pending_card = value
-                self.state.pending_source = "center"
-                self.state.pending_destination = destination.value
-                self.hardware.transfer_one(destination)
-                stack = self.state.left if destination is Side.LEFT else self.state.right
-                stack.insert(0, value)
-                seen.add(value)
-                self.state.source_remaining -= 1
-                self.state.confirmed_moves += 1
-                self.state.pending_card = None
-                self.state.pending_source = None
-                self.state.pending_destination = None
-            self.hardware.stop()
-            self.state.completed = True
-            return self.state
-        except BaseException as error:
-            self.state.fault = f"{type(error).__name__}: {error}"
-            try:
-                self.hardware.stop()
-            except BaseException as stop_error:
-                self.state.fault += f"; stop also failed: {stop_error}"
-            raise
-
-
-class SideDealer:
-    """Feed side cards through the middle camera as part of the actual partition.
-
-    Unknown source cards are represented by source_remaining, not by a guessed
-    identity. There is never a whole-deck center staging pass.
+    The camera sees only the top of the starting compartment, so each card is read
+    before it moves. combined_sorter.scan_destination decides where it goes; it depends
+    only on the card being read. From a side start (hold=True) a card bound for the far
+    side moves to the middle and waits there; waiting cards move on only when a card
+    bound for the middle is read. Scanning stops once the bottom card is known by
+    elimination and it, or the bottom pair, is already in its final place. Mirrors
+    combined_sorter.scan_moves exactly. Single use; retains confirmed progress if the
+    hardware fails.
     """
 
-    def __init__(self, hardware, *, start="left"):
-        from card_sort_planner import side_prefix_size
-
-        if start not in ("left", "right"):
-            raise ValueError("Side dealer requires left or right")
+    def __init__(self, hardware: Hardware, *, start: str = "left", hold: bool | None = None):
+        if start not in ("left", "center", "right"):
+            raise ValueError("Start must be left, center, or right")
         self.hardware = hardware
         self.start = start
-        self.opposite = "right" if start == "left" else "left"
-        self.prefix_size = side_prefix_size()
-        self.state = DealState()
+        self.state = DealState(center=[], left=[], right=[])
+        from combined_sorter import SCAN_HOLD
+
+        self.hold = SCAN_HOLD if hold is None else hold
+        self.moves: list[tuple[str, str, int]] = []
         self._started = False
 
-    def run(self):
+    def _physical(self, letter):
+        if self.start == "right":
+            letter = {"L": "R", "C": "C", "R": "L"}[letter]
+        return {"L": "left", "C": "center", "R": "right"}[letter]
+
+    def _move(self, source, destination):
+        stacks = {"left": self.state.left, "center": self.state.center, "right": self.state.right}
+        self.state.pending_source, self.state.pending_destination = source, destination
+        self.hardware.move_one(source, destination)
+        card = stacks[source].pop(0) if stacks[source] else None
+        if source == self.start:
+            self.state.source_remaining -= 1
+        stacks[destination].insert(0, card)
+        self.state.confirmed_moves += 1
+        self.state.pending_source = self.state.pending_destination = None
+        return card
+
+    def _route(self, source, destination):
+        stacks = {"left": self.state.left, "center": self.state.center, "right": self.state.right}
+        self.moves.append((source, destination, stacks[source][0]))
+        self._move(source, destination)
+
+    def _read(self, seen):
+        self.state.awaiting_scan = True
+        value = self.hardware.scan_top()
+        card_name(value)  # Validate before enabling any movement.
+        if value in seen:
+            raise ValueError(f"Duplicate scan: {card_name(value)}")
+        seen.add(value)
+        self.state.scanned_cards.append(value)
+        self.state.awaiting_scan = False
+        return value
+
+    def run(self) -> DealState:
+        from combined_sorter import scan_destination
+
         if self._started:
             raise RuntimeError("Dealer already used; reconcile physical stacks before restarting")
         self._started = True
-        seen = set()
+        n = 52
+        home = "C" if self.start == "center" else "L"
+        seen: set[int] = set()
         try:
             self.hardware.stop()
-            for _ in range(52):
-                self.state.pending_source = self.start
-                self.state.pending_destination = "center"
-                self.hardware.move_one(self.start, "center")
-                self.state.source_remaining -= 1
-                self.state.confirmed_moves += 1
-                self.state.pending_source = None
-                self.state.pending_destination = None
-                self.state.awaiting_scan = True
-                value = self.hardware.scan_top()
-                card_name(value)
-                if value in seen:
-                    raise ValueError(f"Duplicate scan: {card_name(value)}")
-                seen.add(value)
-                self.state.scanned_cards.append(value)
-                self.state.center.insert(0, value)
-                self.state.awaiting_scan = False
-                if value <= self.prefix_size:
-                    self.state.pending_card = value
-                    self.state.pending_source = "center"
-                    self.state.pending_destination = self.opposite
-                    self.hardware.move_one("center", self.opposite)
-                    self.state.confirmed_moves += 1
-                    self.state.center.pop(0)
-                    getattr(self.state, self.opposite).insert(0, value)
-                    self.state.pending_card = None
-                    self.state.pending_source = None
-                    self.state.pending_destination = None
+            getattr(self.state, self.start)[:] = [None] * n  # unread cards, top first
+            start_stack = getattr(self.state, self.start)
+            far = self._physical("R")
+            held = 0  # far-bound cards waiting on the middle (side starts with hold)
+            for i in range(n):
+                value = self._read(seen)  # the top of the starting pile; nothing has moved
+                start_stack[0] = value
+                bottom = (set(range(1, n + 1)) - seen).pop() if i == n - 2 else None
+                if (i == n - 2 and value == n - 1 and bottom == n) or (i == n - 1 and value == n):
+                    start_stack[-1] = bottom if bottom is not None else value
+                    break  # the rest is already in its final place
+                destination = scan_destination(value, home)
+                self.state.pending_card = value
+                if home == "C":
+                    self._route("center", self._physical(destination))
+                elif destination == "C":
+                    for _ in range(held):
+                        self._route("center", far)
+                    held = 0
+                    self._route(self.start, "center")
+                else:
+                    self._route(self.start, "center")
+                    if self.hold:
+                        held += 1
+                    else:
+                        self._route("center", far)
+                self.state.pending_card = None
             self.hardware.stop()
             self.state.completed = True
             return self.state
@@ -195,6 +189,11 @@ class SideDealer:
             except BaseException as stop_error:
                 self.state.fault += f"; stop also failed: {stop_error}"
             raise
+
+    def deck(self):
+        """The original order, top first, once run() has finished (bottom card by elimination)."""
+        missing = sorted(set(range(1, 53)) - set(self.state.scanned_cards))
+        return list(self.state.scanned_cards) + missing
 
 
 class SimulatedHardware:
@@ -205,6 +204,7 @@ class SimulatedHardware:
             raise ValueError("Simulation requires a complete standard deck")
         if start not in ("left", "center", "right"):
             raise ValueError("Start must be left, center, or right")
+        self.start = start
         self.middle = deque(deck if start == "center" else [])
         self.left: list[int] = list(deck) if start == "left" else []
         self.right: list[int] = list(deck) if start == "right" else []
@@ -214,15 +214,9 @@ class SimulatedHardware:
         self.events.append(("stop",))
 
     def scan_top(self) -> int:
-        value = self.middle[0]
+        value = {"left": self.left, "center": self.middle, "right": self.right}[self.start][0]
         self.events.append(("scan", value))
         return value
-
-    def transfer_one(self, destination: Side) -> None:
-        value = self.middle.popleft()
-        stack = self.left if destination == Side.LEFT else self.right
-        stack.insert(0, value)
-        self.events.append(("transfer", destination.value, value))
 
     def move_one(self, source: str, destination: str) -> None:
         names = ("left", "center", "right")
@@ -257,7 +251,7 @@ def main() -> None:
     from sorter import CardSorter
 
     state = CardSorter(hardware, start=args.start, optimize=args.optimize,
-                       search_seconds=args.search_seconds).run(deck=deck)
+                       search_seconds=args.search_seconds).run()
     start = 0
     stages = {}
     previous = 0
@@ -275,9 +269,7 @@ def main() -> None:
         summary["optimization"] = state.optimization
     if args.show_moves:
         for event in hardware.events:
-            if event[0] == "transfer":
-                print(f"center -> {event[1]}: {card_name(event[2])}")
-            elif event[0] == "move":
+            if event[0] == "move":
                 print(f"{event[1]} -> {event[2]}: {card_name(event[3])}")
     summary.update(left_top_to_bottom=hardware.left,
                    center_top_to_bottom=list(hardware.middle),

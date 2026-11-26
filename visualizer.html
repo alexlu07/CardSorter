@@ -30,7 +30,7 @@
     <div class="summary"><div><p id="stage-name" class="stage-name">Loading simulation…</p><p id="event-description" class="status-line" aria-live="polite">Preparing the scanned deck and sorting plan.</p></div><div class="counter"><span id="moves">0</span><small> / <span id="total-moves">—</span> moves</small></div><div class="progress-track"><div id="progress" class="progress-fill"></div></div></div>
     <div class="scene" id="scene"><div class="rollers" aria-hidden="true"><div class="roller left" id="roller-left"></div><div class="roller right" id="roller-right"></div></div><div class="machine">
       <section class="bay" id="bay-left"><div class="camera-space"></div><div class="bay-head"><h2>Left</h2><span id="count-left" class="count">0 cards</span></div><div class="stack-zone"><span class="empty-label">Empty compartment</span><div id="pile-left" class="card-pile" role="img" aria-label="Left stack"></div></div><p class="stack-label">Top → bottom</p><div id="chips-left" class="chips" aria-label="Left cards in stack order"></div></section>
-      <section class="bay" id="bay-center"><div class="camera-space"><div id="camera" class="camera">Deck · <span id="scans">52</span>/52 known</div></div><div class="bay-head"><h2>Middle</h2><span id="count-center" class="count">52 cards</span></div><div class="stack-zone"><span class="empty-label">Empty compartment</span><div id="pile-center" class="card-pile" role="img" aria-label="Middle stack"></div></div><p class="stack-label">Top → bottom</p><div id="chips-center" class="chips" aria-label="Middle cards in stack order"></div></section>
+      <section class="bay" id="bay-center"><div class="camera-space"><div id="camera" class="camera">Camera · <span id="scans">0</span>/52 read</div></div><div class="bay-head"><h2>Middle</h2><span id="count-center" class="count">52 cards</span></div><div class="stack-zone"><span class="empty-label">Empty compartment</span><div id="pile-center" class="card-pile" role="img" aria-label="Middle stack"></div></div><p class="stack-label">Top → bottom</p><div id="chips-center" class="chips" aria-label="Middle cards in stack order"></div></section>
       <section class="bay" id="bay-right"><div class="camera-space"></div><div class="bay-head"><h2>Right</h2><span id="count-right" class="count">0 cards</span></div><div class="stack-zone"><span class="empty-label">Empty compartment</span><div id="pile-right" class="card-pile" role="img" aria-label="Right stack"></div></div><p class="stack-label">Top → bottom</p><div id="chips-right" class="chips" aria-label="Right cards in stack order"></div></section>
     </div>
   </section>
@@ -107,18 +107,18 @@
   }
   function stageAt(moves, scans) {
     // A side feed can reach its last movement before the final camera event.
-    if (scans < 52) return 0;
+    if (scans < data.scans) return 0;
     return data.stages.findIndex(stage => moves < stage.end);
   }
   function buildFrames(payload) {
     const initial = [[], [], []];
     initial[names.indexOf(payload.start)] = payload.deck.slice();
-    const result = [{stacks:initial, moves:0, scans:52, event:null}];
+    const result = [{stacks:initial, moves:0, scans:0, event:null}];
     for (const event of payload.events) {
       const last = result[result.length - 1];
       const next = {stacks:last.stacks.map(stack => stack.slice()), moves:last.moves, scans:last.scans, event};
       if (event.kind === 'scan') {
-        if (next.stacks[1][0] !== event.card) throw new Error('Camera event does not match the top card.');
+        if (next.stacks[names.indexOf(payload.start)][0] !== event.card) throw new Error('Camera event does not match the top card.');
         next.scans++;
       } else {
         const source = names.indexOf(event.source), destination = names.indexOf(event.destination);
@@ -130,7 +130,7 @@
     }
     const final = result[result.length - 1];
     const finish = names.indexOf(payload.finish);
-    if (finish !== names.indexOf(payload.start) || final.stacks.some((stack,index) => index === finish ? stack.length !== 52 || stack.some((v,i) => v !== i + 1) : stack.length !== 0) || final.moves !== payload.movements || final.scans !== 52 || final.moves > payload.movement_budget) throw new Error('Simulation validation failed.');
+    if (finish !== names.indexOf(payload.start) || final.stacks.some((stack,index) => index === finish ? stack.length !== 52 || stack.some((v,i) => v !== i + 1) : stack.length !== 0) || final.moves !== payload.movements || final.scans !== payload.scans || final.scans < 51 || final.moves > payload.movement_budget) throw new Error('Simulation validation failed.');
     return result;
   }
   function protectedCount(index, frame) {
@@ -258,6 +258,7 @@
       if (payload.api_version !== 5) throw new Error(restartMessage);
       const prepared = buildFrames(payload);
       data = payload; frames = prepared; cursor = 0;
+      byId(`bay-${payload.start}`).querySelector('.camera-space').append(byId('camera'));
       if (payload.seed !== null) byId('seed').value = payload.seed;
       byId('start').value = payload.start;
       byId('shuffle-mode').value = payload.shuffle_mode;
@@ -270,7 +271,7 @@
       data.stages.forEach((stage, i) => {
         const button = document.createElement('button'); button.type = 'button';
         button.textContent = stage.name.split(':')[0]; button.title = `${stage.name} · ${stage.end-stage.start} moves`;
-        button.addEventListener('click', () => seek(i === 0 ? 0 : frames.findIndex(frame => frame.moves === stage.start && frame.scans === 52)));
+        button.addEventListener('click', () => seek(i === 0 ? 0 : frames.findIndex(frame => frame.moves === stage.start && frame.scans === data.scans)));
         byId('stage-jumps').append(button);
       });
     } catch (error) {byId('error').textContent = error.message; byId('optimizer-status').textContent = data ? 'Load failed. Previous simulation retained.' : 'Could not load simulation.';}
