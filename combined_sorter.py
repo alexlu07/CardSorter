@@ -21,7 +21,6 @@ For each deck:
 Decks are top first. Moves are card_sorter.Move(source, destination, card), adjacent only.
 
     python combined_sorter.py --seed 42 --start L
-    python combined_sorter.py --benchmark 512 --start C --jobs 8
 """
 
 import argparse
@@ -462,46 +461,13 @@ def plan(deck, *, start='C'):
     return get_planner().plan(deck, start)
 
 
-def _bench_one(args):
-    seed, start = args
-    deck = list(range(1, 53))
-    random.Random(seed).shuffle(deck)
-    report = {}
-    moves = get_planner().plan(deck, start, report)
-    return seed, len(moves), report
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('cards', type=int, nargs='*', help='deck from top to bottom')
     ap.add_argument('--start', choices=('L', 'C', 'R'), default='C')
     ap.add_argument('--seed', type=int)
-    ap.add_argument('--benchmark', type=int, metavar='N', help='seeds 0..N-1')
-    ap.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument('--show-moves', action='store_true')
     args = ap.parse_args()
-    if args.benchmark:
-        get_planner()  # build the table cache once before forking workers
-        from multiprocessing import Pool
-        t0 = time.time()
-        with Pool(args.jobs) as pool:
-            rows = sorted(pool.map(_bench_one, [(s, args.start) for s in range(args.benchmark)], chunksize=4))
-        costs = [c for _, c, _ in rows]
-        wins = {}
-        for _, _, rep in rows:
-            wins[rep['best']] = wins.get(rep['best'], 0) + 1
-        a_raw = [min(v[0] for k, v in rep.items() if k.startswith('A')) for _, _, rep in rows]
-        b_raw = [min(v[0] for k, v in rep.items() if k.startswith('B')) for _, _, rep in rows]
-        both = [min(a, b) for a, b in zip(a_raw, b_raw)]
-        n = len(rows)
-        print(f'start {args.start}: {n} decks, {time.time() - t0:.0f}s')
-        print(f'  A unpolished       mean {sum(a_raw)/n:.2f} max {max(a_raw)}')
-        print(f'  B unpolished       mean {sum(b_raw)/n:.2f} max {max(b_raw)}')
-        print(f'  shorter of A and B mean {sum(both)/n:.2f} max {max(both)}')
-        print(f'  combined           mean {sum(costs)/n:.2f} max {max(costs)} min {min(costs)}'
-              f'  (bound {BOUND[args.start]}, all verified)')
-        print('  winning candidate:', dict(sorted(wins.items(), key=lambda kv: -kv[1])))
-        return
     cards = args.cards
     if args.seed is not None:
         cards = list(range(1, 53))

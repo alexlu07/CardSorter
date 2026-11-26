@@ -19,14 +19,6 @@ Both temporary piles have the largest card on top. For the left start, each righ
 4. Polishes every candidate, forwards and time-reversed. Polishing deletes pointless excursions and replaces any window that moves at most 9 cards, and starts or ends with exactly those cards on top of any stack, by its exact optimum. The three best candidates also get windows of 10–11 cards repaired by A* search.
 5. Returns the shortest candidate after an independent replay with `card_sorter.verify`. It asserts the 322 / 350 bound.
 
-| 512 seeded shuffles, mean (max) | Center | Side |
-|---|---:|---:|
-| Strategy A | 266.13 (288) | 295.88 (312) |
-| Strategy B, polished (as reported) | 275.07 (290) | 289.34 (308) |
-| Shorter of A and B per deck | 265.72 | 288.38 |
-| **Combined planner** | **260.13 (276)** | **279.42 (296)** |
-| Seed 42 | 260 | 272 |
-
 ```python
 from combined_sorter import plan
 
@@ -37,19 +29,15 @@ The first call builds the exact 9-card tables for goals C and L. This takes abou
 
 ```sh
 python combined_sorter.py --seed 42 --start L
-python combined_sorter.py --benchmark 512 --start C --jobs 8
 ```
 
 ## Strategy A on its own
 
-| Measurement | Center | Left |
+| Proven bound | Center | Left |
 |---|---:|---:|
 | Worst-case optimum interval | 204–322 | 206–350 |
 | Reverse deck optimum | 204 | 206 |
 | Uniform-shuffle mean ceiling | <276.065 | <307.750 |
-| Reported mean over 512 seeded shuffles | 266.13 | 295.88 |
-| Largest in that sample | 288 | 312 |
-| Seed 42 | 264 | 294 |
 
 ```python
 from card_sorter import plan
@@ -263,8 +251,7 @@ and 30/28/28 for eight. Reflection and relabeling cover the other side and any
 desired order. These bounds give the stated 350 maximum for this recipe; the
 whole-deck plan is not claimed to be globally shortest. Every generated plan
 also checks its stage budgets and final result before physical sorting begins.
-A particular starting deck can require fewer movements. The seed-42 middle
-demo uses 318; the default left demo uses 338.
+A particular starting deck can require fewer movements.
 
 ## Files and planner API
 
