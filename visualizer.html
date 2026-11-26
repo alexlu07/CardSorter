@@ -25,7 +25,7 @@
     <textarea id="custom-deck" aria-describedby="custom-help custom-status" spellcheck="false" placeholder="1, 2, 3, …, 52"></textarea>
     <div class="custom-actions"><button id="copy-deck" type="button">Use current deck</button><button id="ordered-deck" type="button">1–52</button><button id="reversed-deck" type="button">52–1</button><span id="custom-status" role="status" aria-live="polite"></span></div>
   </section>
-  <div class="search-controls"><label class="search-toggle"><input id="optimize" type="checkbox">Improve plan</label><label>Search algorithm<select id="search-algorithm"><option value="beam" selected>Beam search</option><option value="astar">A*</option><option value="ida">IDA*</option></select></label><label class="search-budget">Search seconds<input id="search-seconds" type="number" min="0" max="30" step="any" value="2" required form="seed-form"></label><p id="optimizer-status" role="status" aria-live="polite">Recipe plan. Enable search to try fewer moves.</p></div>
+  <div class="search-controls"><label class="search-toggle"><input id="optimize" type="checkbox">Improve plan</label><label>Search algorithm<select id="search-algorithm"><option value="beam" selected>Beam search</option><option value="astar">A*</option></select></label><label class="search-budget">Search seconds<input id="search-seconds" type="number" min="0" max="30" step="any" value="2" required form="seed-form"></label><p id="optimizer-status" role="status" aria-live="polite">Recipe plan. Enable search to try fewer moves.</p></div>
   <section aria-label="Simulated card sorter">
     <div class="summary"><div><p id="stage-name" class="stage-name">Loading simulation…</p><p id="event-description" class="status-line" aria-live="polite">Preparing the scanned deck and sorting plan.</p></div><div class="counter"><span id="moves">0</span><small> / <span id="total-moves">—</span> moves</small></div><div class="progress-track"><div id="progress" class="progress-fill"></div></div></div>
     <div class="scene" id="scene"><div class="rollers" aria-hidden="true"><div class="roller left" id="roller-left"></div><div class="roller right" id="roller-right"></div></div><div class="machine">
@@ -266,7 +266,7 @@
       if (payload.shuffle_mode === 'custom') setCustomDeck(payload.deck);
       updateMode();
       const search = payload.optimization;
-      const labels = {beam:'Beam search', astar:'A*', ida:'IDA*'};
+      const labels = {beam:'Beam search', astar:'A*'};
       byId('optimizer-status').textContent = search ? `${labels[search.search_algorithm]} · ${search.optimal ? 'Proven optimal after scanning' : search.saved_moves ? 'Best found · not proven optimal' : 'No improvement found · fallback retained'} · ${search.fallback_moves} → ${search.result_moves} remaining moves · saved ${search.saved_moves} · ${search.elapsed_seconds.toFixed(2)}s${search.timed_out ? ' · time limit reached' : ''}${search.memory_limited ? ' · memory limit reached' : ''}` : 'Recipe plan. Enable search to try fewer moves.';
       byId('timeline').max = data.events.length;
       byId('stage-jumps').replaceChildren();

@@ -1,4 +1,4 @@
-"""Time-bounded A*, beam, and IDA* improvements with a verified incumbent.
+"""Time-bounded A* and beam improvements with a verified incumbent.
 
 Search moves are adjacent top-card transfers. A timeout always returns a legal
 plan no longer than the supplied fallback. Optimality applies to these search
@@ -35,7 +35,7 @@ class OptimizationResult:
     beam_width: int | None = None
 
     def summary(self):
-        labels = {"ida": "IDA*", "astar": "A*", "beam": "Beam search"}
+        labels = {"astar": "A*", "beam": "Beam search"}
         return {"enabled": True, "search_algorithm": self.search_algorithm,
                 "algorithm": labels[self.search_algorithm] + " with pattern databases and plan shortcuts",
                 "scope": "remaining transfers after scanning and distribution",
@@ -123,54 +123,6 @@ class LowerBound:
         patterns = sum(table[b"\0".join(projected)]
                        for table, projected in zip(self.tables, projections))
         return max(physical, patterns)
-
-
-class _IDA:
-    max_active = 8
-    local_seconds = 0.035
-    def __init__(self):
-        self.nodes = 0
-
-    def search(self, initial, target, incumbent, deadline):
-        heuristic = LowerBound(target, deadline)
-        threshold = heuristic(initial)
-        path, visiting = [], {initial}
-
-        def visit(state, cost, bound, previous):
-            if time.monotonic() >= deadline:
-                raise _Timeout
-            self.nodes += 1
-            estimate = cost + heuristic(state)
-            if estimate > bound:
-                return estimate
-            if state == target:
-                return tuple(path)
-            following = []
-            for next_state, move in _neighbors(state):
-                if previous and move.source == previous.destination and move.destination == previous.source:
-                    continue  # Immediate undo cannot be in a shortest solution.
-                if next_state not in visiting:
-                    following.append((heuristic(next_state), next_state, move))
-            following.sort(key=lambda entry: entry[0])
-            next_bound = math.inf
-            for _, next_state, move in following:
-                path.append(move)
-                visiting.add(next_state)
-                result = visit(next_state, cost + 1, bound, move)
-                visiting.remove(next_state)
-                path.pop()
-                if isinstance(result, tuple):
-                    return result
-                next_bound = min(next_bound, result)
-            return next_bound
-
-        while threshold < len(incumbent):
-            result = visit(initial, 0, threshold, None)
-            if isinstance(result, tuple):
-                return result, True, len(result)
-            threshold = result
-        # Every possible shorter cost was ruled out by exhaustive thresholds.
-        return incumbent, True, len(incumbent)
 
 
 def _incumbent_suffixes(initial, moves):
@@ -350,8 +302,8 @@ def optimize_plan(initial, target, fallback, *, seconds=2.0, algorithm="beam"):
     """
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or not 0 <= seconds <= 30:
         raise ValueError("Search time must be between 0 and 30 seconds")
-    if algorithm not in ("beam", "astar", "ida"):
-        raise ValueError("Search algorithm must be beam, astar, or ida")
+    if algorithm not in ("beam", "astar"):
+        raise ValueError("Search algorithm must be beam or astar")
     initial, target = _stacks(initial), _stacks(target)
     if {card for stack in initial for card in stack} != {card for stack in target for card in stack}:
         raise ValueError("Initial and target cards must match")
@@ -361,7 +313,7 @@ def optimize_plan(initial, target, fallback, *, seconds=2.0, algorithm="beam"):
     started = time.monotonic()
     deadline = started + seconds
     best = _erase_cycles(initial, fallback)
-    engine = _IDA() if algorithm == "ida" else _BestFirst(algorithm)
+    engine = _BestFirst(algorithm)
     optimal = initial == target
     timed_out = False
     lower_bound = 0

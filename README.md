@@ -311,7 +311,7 @@ to side starts.
   `plan_side_remaining` plans direct side sorting after its camera partition.
 - `sorter.py`: `CardSorter` executes initial dealing and the remaining plan.
 - `heuristic_planner.py`: time-bounded `optimize_plan`, admissible lower bounds,
-  pattern databases, local repairs, beam search, A*, and IDA*.
+  pattern databases, local repairs, beam search, and A*.
 - `visualizer.py`, `visualizer.html`: local simulation server and interactive
   playback of the three compartments, scans, and card movements.
 - `simulation-results.json`: results of the 10,000-deck simulation batch.
