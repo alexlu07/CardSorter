@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import math
 from typing import Protocol
 
+from card_sorter import bounds
+from combined_sorter import plan as plan_deck
 from cards import DealState, Hardware, InitialDealer, SideDealer
 from card_sort_planner import SortPlan, plan_remaining, plan_side_remaining, side_movement_budget
 from exact_stack_planner import Move, apply_moves
@@ -35,16 +37,22 @@ class SortState:
     fault: str | None = None
     optimization: dict | None = None
 
+    prescanned: bool = False
+
     @property
     def movements_confirmed(self):
         return self.initial_deal.confirmed_moves + self.sorting_moves_confirmed
 
     @property
     def movement_budget(self):
+        if self.prescanned:
+            return bounds(start=self.start[0].upper())[0]
         return 350 if self.start == "center" else side_movement_budget()
 
     @property
     def strategy(self):
+        if self.prescanned:
+            return "prescanned-combined"
         return "middle-partition-and-merge" if self.start == "center" else "direct-side"
 
 
@@ -65,27 +73,39 @@ class CardSorter:
         self.state = SortState(self.dealer.state, start=start)
         self._started = False
 
-    def run(self) -> SortState:
+    def run(self, *, deck=None) -> SortState:
         if self._started:
             raise RuntimeError("Sorter already used; reconcile physical stacks before restarting")
         self._started = True
         try:
-            self.state.phase = "1: scan and distribute" if self.state.start == "center" else "1: feed through camera and partition"
-            deal = self.dealer.run()
-            self.state.dealing_stages = ((self.state.phase, deal.confirmed_moves),)
-            self.state.stacks = (tuple(deal.left), tuple(deal.center), tuple(deal.right))
-            self.state.phase = "planning"
-            # Plan and verify every remaining move before operating more motors.
-            if self.state.start == "center":
-                plan = plan_remaining(deal.left, deal.right)
+            if deck is None:
+                self.state.phase = "1: scan and distribute" if self.state.start == "center" else "1: feed through camera and partition"
+                deal = self.dealer.run()
+                self.state.dealing_stages = ((self.state.phase, deal.confirmed_moves),)
+                self.state.stacks = (tuple(deal.left), tuple(deal.center), tuple(deal.right))
+                self.state.phase = "planning"
+                # Plan and verify every remaining move before operating more motors.
+                if self.state.start == "center":
+                    plan = plan_remaining(deal.left, deal.right)
+                else:
+                    opposite = deal.right if self.state.start == "left" else deal.left
+                    plan = plan_side_remaining(deal.center, opposite, start=self.state.start)
             else:
-                opposite = deal.right if self.state.start == "left" else deal.left
-                plan = plan_side_remaining(deal.center, opposite, start=self.state.start)
+                cards = tuple(deck)
+                if len(cards) != 52:
+                    raise ValueError("Hardware execution requires 52 cards")
+                self.state.prescanned = True
+                self.state.phase = "planning"
+                names = {"L": "left", "C": "center", "R": "right"}
+                route = plan_deck(cards, start=self.state.start[0].upper())
+                moves = tuple(Move(card, names[src], names[dst]) for src, dst, card in route)
+                plan = SortPlan(moves, (("Sort scanned deck", len(moves)),))
+                self.state.stacks = tuple(cards if name == self.state.start else () for name in names.values())
             expected = [(), (), ()]
             expected[("left", "center", "right").index(self.state.start)] = tuple(range(1, 53))
             if apply_moves(self.state.stacks, plan.moves) != tuple(expected):
                 raise RuntimeError("Plan does not finish sorted in its starting compartment")
-            if deal.confirmed_moves + len(plan.moves) > self.state.movement_budget:
+            if self.state.initial_deal.confirmed_moves + len(plan.moves) > self.state.movement_budget:
                 raise RuntimeError("Plan exceeds its movement budget")
             if self.optimize:
                 label = {"beam": "Beam search", "astar": "A*", "ida": "IDA*"}[self.search_algorithm]

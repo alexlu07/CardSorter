@@ -259,7 +259,7 @@ def main() -> None:
     from sorter import CardSorter
 
     state = CardSorter(hardware, start=args.start, optimize=args.optimize,
-                       search_seconds=args.search_seconds, search_algorithm=args.search_algorithm).run()
+                       search_seconds=args.search_seconds, search_algorithm=args.search_algorithm).run(deck=deck)
     start = 0
     stages = {}
     previous = 0

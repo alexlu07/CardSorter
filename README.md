@@ -1,172 +1,75 @@
 # Three-compartment card sorter
 
-Automatic sorting of a standard 52-card deck using three side-by-side stacks,
-adjacent motor-driven rollers, and a camera above the middle compartment.
-The complete partition-and-merge method is implemented in Python 3.10+ with no
-dependencies. The demo simulates the camera and motors.
+Given the top-to-bottom order of a scanned deck, the planner sorts cards 1–52 back into their starting compartment. Each transfer moves one exposed card between adjacent compartments. Counts begin with the deck order known.
 
-```sh
-python3 cards.py --demo
-python3 cards.py --demo --seed 12 --show-moves
-python3 cards.py --demo --start center
-python3 cards.py --demo --start right
-python3 cards.py --demo --optimize --search-seconds 2
-python3 cards.py --demo --optimize --search-algorithm astar --search-seconds 2
+| Start | Prepare original top group | Prepare remainder | Merge 52 down to 1 | Guaranteed total |
+|---|---|---|---|---|
+| Center | 22 onto left, ≤106 | 30 onto right, ≤164 | 52 | **322** |
+| Left | 31 onto center, ≤171 | 21 onto right, ≤106 | 73 | **350** |
+
+Both temporary piles have the largest card on top. For the left start, each right-pile card crosses center on its way home. Right starts mirror left starts. These fixed plans (Strategy A, [card_sorter.py](card_sorter.py)) give the certified bounds. Blocks of up to 11 cards use exact search; larger blocks use recursive splits and merges.
+
+## Combined planner
+
+[combined_sorter.py](combined_sorter.py) keeps every certified Strategy A plan as a candidate and adds per-deck candidates, so no deck can exceed 322 (center) or 350 (side). For each deck it:
+
+1. Generates every Strategy A variant (worst-case-first or mean-first, with or without the one-card-across split, forward and time-reversed, with and without the settled bottom run).
+2. Runs Strategy B's per-deck hub-distribution DP ([hubsort.py](hubsort.py)) on the deck and on its inverse. The inverse plan is played time-reversed.
+3. Runs a per-deck DP over Strategy A's merge family (`MergeDP`), on the deck and on its inverse. It picks the split point, the pile assignment and the one-card-across option for every block. It uses exact 9-card table leaves and credits the guaranteed merge cancellation.
+4. Polishes every candidate, forwards and time-reversed. Polishing deletes pointless excursions and replaces any window that moves at most 9 cards, and starts or ends with exactly those cards on top of any stack, by its exact optimum. The three best candidates also get windows of 10–11 cards repaired by A* search.
+5. Returns the shortest candidate after an independent replay with `card_sorter.verify`. It asserts the 322 / 350 bound.
+
+| 512 seeded shuffles, mean (max) | Center | Side |
+|---|---:|---:|
+| Strategy A | 266.13 (288) | 295.88 (312) |
+| Strategy B, polished (as reported) | 275.07 (290) | 289.34 (308) |
+| Shorter of A and B per deck | 265.72 | 288.38 |
+| **Combined planner** | **260.13 (276)** | **279.42 (296)** |
+| Seed 42 | 260 | 272 |
+
+```python
+from combined_sorter import plan
+
+moves = plan(deck, start="C")  # L, C, or R; card_sorter.Move(source, destination, card)
 ```
 
-`--start` selects both the starting and finishing compartment: `left` (default),
-`center`, or `right`. The final deck is always 1–52 from top to bottom in that
-same compartment, with both other compartments empty. The camera stays over the
-middle compartment.
-
-Side starts use a direct strategy: feed each card through the middle camera,
-leave cards 9–52 in the middle, and send cards 1–8 to the opposite side. Sort
-9–52 directly onto the starting side, then sort 1–8 above them. There is no
-whole-deck loading pass or whole-deck final return. The maximum is **378 for
-side starts**, or **350 for a middle start**. With seed 42, the default left
-mode uses 338 moves; middle mode uses 318. A dynamic program selects the lowest
-proven movement bound within the recursive partition strategy family; this is
-not a claim that every full-deck plan is globally optimal.
-
-## Visualizer
+The first call builds the exact 9-card tables for goals C and L. This takes about a minute and needs about 1 GB of RAM. The tables are cached in `.table_cache/`, so later runs load them in seconds. The planner needs numpy and takes about 2–3 seconds per deck. `sorter.py` (the hardware path used by `cards.py` and the visualizer) now plans with the combined planner.
 
 ```sh
-python3 visualizer.py
+python combined_sorter.py --seed 42 --start L
+python combined_sorter.py --benchmark 512 --start C --jobs 8
 ```
 
-Open **http://127.0.0.1:8765** in a browser. The visualizer runs the same Python
-sorter and replays its recorded camera scans and confirmed transfers. Use Play,
-Pause, Back, Step, Restart, or Finish; drag the timeline or select a stage to jump
-through the sequence. Select **Start & finish**, choose a shuffle seed or generate a new shuffle, and change
-playback speed. The three compartments show their top cards, counts, and full
-top-to-bottom card lists. Muted chips mark the waiting eight cards and completed
-44-card base for side starts, or the waiting 32-card group and completed bottom
-twenty for middle starts. Search can change these boundaries; shading is then
-omitted.
+## Strategy A on its own
 
-The server is local to this computer and needs no packages or internet access.
-Use `python3 visualizer.py --port 9000 --seed 123 --start right` to change its port,
-initial shuffle, or starting/finishing compartment. The default is left. Stop it
-with Ctrl+C. This only operates simulated hardware.
+| Measurement | Center | Left |
+|---|---:|---:|
+| Worst-case optimum interval | 204–322 | 206–350 |
+| Reverse deck optimum | 204 | 206 |
+| Uniform-shuffle mean ceiling | <276.065 | <307.750 |
+| Reported mean over 512 seeded shuffles | 266.13 | 295.88 |
+| Largest in that sample | 288 | 312 |
+| Seed 42 | 264 | 294 |
 
-For a specific starting order, choose **Deck order → Custom shuffle**. Enter all
-52 card IDs from **top to bottom**, separated by commas, spaces, or newlines,
-then select **Load deck**. IDs must contain every integer 1–52 exactly once;
-duplicates, missing cards, and invalid values are rejected. **Use current deck**
-copies the currently loaded starting order, while **1–52** and **52–1** fill
-ordered and reversed decks. Changing the starting compartment keeps your custom
-order. **New shuffle** switches back to a generated shuffle.
+```python
+from card_sorter import plan
 
-## Optional search optimization
+moves = plan(deck, start="C")  # L, C, or R
+```
 
-Enable **Improve plan** in the visualizer, or pass `--optimize` to the demo.
-Select **Beam search** (default), **A***, or **IDA*** and set **Search seconds**
-(0–30, default 2). Changing the algorithm while search is enabled reloads the
-simulation. Use **Load deck** after changing the time budget. The page and CLI
-report before/after remaining moves, saved moves, search time, and whether the
-result is **best found** or **proven optimal after scanning**. An unsuccessful
-search explicitly says **No improvement found · fallback retained**. Optimization
-is off by default; without it, the partition-and-merge stages run as before.
+Pass `exact=True` to search for a shortest route for a specific deck. A full-deck search can exhaust time or memory.
 
-| Algorithm | Purpose and limits |
-| --- | --- |
-| Beam search | Default for practical improvements. Keeps 64 candidates per depth, restarting with widths up to 512 if time remains. Pruning can miss shorter solutions, so it does not generally prove optimality. |
-| A* | Expands the cheapest estimated complete paths first. Stops safely at the time budget or a 25,000 discovered-state/open-entry cap. Can prove optimality when every cheaper candidate is ruled out. |
-| IDA* | Searches increasing cost thresholds with small path memory. Retained for comparison; repeated work can consume the budget without improving a full-deck plan. |
+```sh
+python cards.py --demo --seed 42 --start center --show-moves
+python visualizer.py
+python card_sorter.py --start L --bounds 52
+```
 
-The controller first completes the required middle-camera scan and distribution;
-side starts scan each newly fed card as part of their direct partition.
-It then builds the existing bounded plan as a fallback and runs the optimizer
-before executing any remaining moves. The optimizer removes cycles and repairs
-overlapping sections of the plan using the selected algorithm. A*/beam repairs
-can involve up to twelve active cards; IDA* repairs use at most eight. A* and
-beam search can reconnect to later known states in the incumbent plan, so a
-partial search can produce a complete improvement without reaching the final
-goal by itself. Remaining time is used for global search between the scanned
-arrangement and the chosen finishing compartment. Every candidate is independently
-replayed before execution. A timeout or memory limit retains the best verified
-plan, never a longer one.
+Open the visualizer at http://127.0.0.1:8765 to replay a seeded or custom deck. The optional time-limited optimizer can try to shorten the verified plan. [Seed 42 transfers](example_moves_seed42.txt) lists both routes. [The C++ certifier](certify_blocks.cpp) reproduces the small-block constants used by the bound calculation.
 
-The heuristic takes the maximum of two admissible lower bounds: compartment
-travel plus unavoidable removal/return of cards above unsettled stack bases,
-and additive exact pattern databases of at most five cards each. Each physical
-move changes only one disjoint pattern, so summing pattern distances does not
-overestimate. Tables are built by reverse breadth-first search and cached with
-a bounded cache. The searches reject redundant revisits. IDA* uses path-cycle
-detection; A* stores best discovered costs and a bounded priority queue. Beam
-search keeps a fixed-width layer and bounds its duplicate table, forgetting old
-entries if necessary without discarding its best valid plan.
+## Hardware with an unknown deck order
 
-Exhaustive A* search, exhaustive IDA* thresholds, or a matching admissible lower
-bound can justify an optimality label. Beam search receives that label only if
-the result matches the admissible lower bound. Small local optima do not prove the full remaining plan is
-optimal. The label applies to **remaining moves from the scanned/distributed
-state**, not to the whole process: initial feeding and scanning transfers have
-already occurred and cannot be optimized away. The standalone
-`optimize_plan(initial, target, fallback, seconds=..., algorithm="beam")` API can search between
-other fully known arrangements, including a whole-deck initial state.
-
-The budget covers search, with checks between nodes. Small database builds and
-plan validation can add brief overhead. Full-deck optimal search is generally
-intractable within this limit; finding improvements is the practical objective.
-Saved-move counts may vary with the time budget and computer speed. Optimized
-playback can combine the recipe's stages into one stage because the search can
-cross their boundaries; the earlier waiting-group shading is then omitted.
-
-For example, a custom 1–52 deck starting in the middle finishes in 104 total
-moves with optimization: the fixed 52 scan/distribution transfers and a
-52-transfer merge. That remaining merge is proven optimal. This does not mean
-104 is globally optimal for a deck already sorted before scanning; the scan
-and distribution stage is fixed in this controller.
-
-Validation included admissibility checks against independent exact distances
-for all 360 four-card and 20,160 six-card arrangements, shortest-plan comparisons,
-and 24 time-limited full-deck runs across all three starting compartments.
-Timeouts retained valid plans, and every full-deck result was no longer than
-its fallback. The earlier 10,000-run statistics describe the unoptimized recipe.
-
-### Three-solver benchmark
-
-The expanded benchmark ran **207 solver trials on 69 paired cases**. The default
-2-second tier used 20 shuffled decks (seeds 0–17, 42, 123) in all three starting
-compartments, giving 60 cases per solver. A longer 5-second tier used three new
-decks (seeds 101, 202, 303), again in all three compartments, giving nine cases
-per solver. Within each tier all algorithms received identical decks, scanned
-states, and fallbacks. Their order was rotated and the pattern cache was cleared
-before each run. The source files stayed unchanged throughout the benchmark.
-
-Average **total physical transfers**, including the shared camera/feed prefix:
-
-| Algorithm | 2-second budget, 60 cases | 5-second budget, nine cases |
-| --- | ---: | ---: |
-| IDA* | 318.93 | 320.44 |
-| A* | 311.47 | 313.33 |
-| Beam search | 310.93 | 312.00 |
-
-The columns use different deck sets; they compare algorithms within each budget,
-not the effect of increasing time on the same decks. All 207 candidates passed
-independent full-stack replay: correct final deck and compartment, adjacent
-top-card moves, card conservation, and no plan longer than its fallback.
-
-**Decision: no clear overall winner, so all three remain available.** Beam stays
-the default, but its average advantage over A* was only 0.53 moves at two seconds
-and 1.33 at five seconds. At two seconds, beam beat A* on 22 cases, tied on 21,
-and lost on 17; at five seconds it won three, tied three, and lost three. A
-seed-clustered paired bootstrap gave a 95% interval of -1.37 to +2.57 moves for
-beam's default-budget advantage, so the observed lead was not decisive. IDA*
-was substantially weaker on average.
-
-The predeclared removal rule required the lowest mean at both budgets, a positive
-paired confidence interval against both alternatives, and at least 60% of
-non-tied default-budget comparisons won against both. No algorithm met it.
-Results describe the current implementations and settings: A* reached its
-25,000-state/open-entry cap in every trial and used about 1.26 seconds on average
-in the two-second tier, while beam used its full budget. Different memory limits
-or machines could change the comparison. Full counts, timings, paired results,
-methodology, and source hashes are in [`search-benchmark.json`](search-benchmark.json).
-
-A*/beam paths were also checked against 80 independent six-card BFS comparisons;
-memory-limited A* retained a legal fallback without claiming optimality.
+Pass the known order to `CardSorter.run(deck=deck)` for the strategy above. Calling `run()` with no deck retains the camera-driven strategy documented below, including its scanning transfers and separate budgets.
 
 ## Initial scan and distribution
 

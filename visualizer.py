@@ -41,7 +41,7 @@ def simulation(seed=None, start="left", *, deck=None, optimize=False, search_sec
         random.Random(seed).shuffle(deck)
     hardware = SimulatedHardware(deck, start=start)
     state = CardSorter(hardware, start=start, optimize=optimize, search_seconds=search_seconds,
-                       search_algorithm=search_algorithm).run()
+                       search_algorithm=search_algorithm).run(deck=deck)
     expected = [(), (), ()]
     expected[("left", "center", "right").index(start)] = tuple(range(1, 53))
     if state.stacks != tuple(expected):
