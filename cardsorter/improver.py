@@ -1,4 +1,4 @@
-"""Time-bounded beam-search improvements with a verified incumbent.
+"""Optional improver: time-bounded beam search that may shorten a verified plan.
 
 Search moves are adjacent top-card transfers. A timeout always returns a legal
 plan no longer than the supplied fallback. Optimality applies to these search
@@ -12,7 +12,9 @@ import heapq
 import math
 import time
 
-from exact_stack_planner import EDGES, Move, NAMES, _stacks, apply_moves
+from .model import STACKS, Move, apply_moves, check_stacks
+
+EDGES = ((0, 1), (1, 0), (1, 2), (2, 1))  # (source, destination) stack indices
 
 
 class _Timeout(Exception):
@@ -54,7 +56,7 @@ def _neighbors(state):
             card = stacks[source][0]
             stacks[source] = stacks[source][1:]
             stacks[destination] = (card,) + stacks[destination]
-            yield tuple(stacks), Move(card, NAMES[source], NAMES[destination])
+            yield tuple(stacks), Move(STACKS[source], STACKS[destination], card)
 
 
 @lru_cache(maxsize=32)
@@ -82,7 +84,7 @@ class LowerBound:
     """Admissible maximum of displacement/stack access and additive PDB bounds."""
 
     def __init__(self, target, deadline=math.inf):
-        self.target = _stacks(target)
+        self.target = check_stacks(target)
         cards = [card for stack in self.target for card in stack]
         self.locations = {card: i for i, stack in enumerate(self.target) for card in stack}
         self.groups = [cards[i:i + 5] for i in range(0, len(cards), 5)]
@@ -266,7 +268,7 @@ def optimize_plan(initial, target, fallback, *, seconds=2.0):
     """
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or not 0 <= seconds <= 30:
         raise ValueError("Search time must be between 0 and 30 seconds")
-    initial, target = _stacks(initial), _stacks(target)
+    initial, target = check_stacks(initial), check_stacks(target)
     if {card for stack in initial for card in stack} != {card for stack in target for card in stack}:
         raise ValueError("Initial and target cards must match")
     fallback = tuple(fallback)

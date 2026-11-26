@@ -1,20 +1,14 @@
-#!/usr/bin/env python3
-"""Plan and verify adjacent, single-card transfers. All deck arguments are top first.
+"""Strategy A: certified recursive block merge (splits blocks by position, then merges).
 
-Examples:
-    python card_sorter.py --seed 42
-    python card_sorter.py --start L --seed 42
-    python card_sorter.py 2 1 3 4
-    python card_sorter.py --exact 4 1 5 2 3
-    python card_sorter.py --start R --bounds 52
+Blocks of up to 11 cards are solved exactly (A* with additive pattern databases); larger
+blocks split into a top group and a remainder, sort each onto its own pile, and merge.
+bounds() gives the certified worst case: 322 moves from C, 350 from a side. The small-block
+constants in LEAVES and ONE_CARD_ACROSS can be reproduced with tools/certify_blocks.cpp.
 
-For 52 cards the default guarantees at most 322 transfers for a center start
-and 350 for a side start. --exact requests shortest-path search when simpler
-optimality certificates do not settle the input.
-No third-party Python packages are required.
+Internally stacks are indices L=0, C=1, R=2 and moves are (edge code, card) pairs; plan()
+returns model.Move records.
 """
 
-import argparse
 import heapq
 import random
 from bisect import bisect_left
@@ -23,7 +17,8 @@ from fractions import Fraction
 from functools import cache, lru_cache
 from itertools import product
 from math import factorial
-from typing import NamedTuple
+
+from .model import Move, check_deck, letter, verify
 
 L, C, R = range(3)
 NAMES = "LCR"
@@ -31,59 +26,13 @@ EDGES = ((C, L), (L, C), (C, R), (R, C))
 CODE = {edge: code for code, edge in enumerate(EDGES)}
 
 
-class Move(NamedTuple):
-    source: str
-    destination: str
-    card: int
-
-
-def _deck(values):
-    cards = tuple(values)
-    if not 1 <= len(cards) <= 52 or any(type(x) is not int for x in cards):
-        raise ValueError("Supply 1 through 52 integer card labels.")
-    if sorted(cards) != list(range(1, len(cards) + 1)):
-        raise ValueError("Expected each label from 1 to the deck size exactly once.")
-    return cards
-
-
 def _starting_pile(start):
-    if start not in ("L", "C", "R"):
-        raise ValueError("The starting and finishing pile must be L, C, or R.")
-    return NAMES.index(start)
-
-
-def verify(deck, moves, *, start="C"):
-    """Independently replay (source, destination, card) triples. Return unit cost.
-
-    Raise ValueError at the first illegal move or if the final state is wrong.
-    Lists below store the top at the end; this simulator uses no search helpers.
-    """
-    order = _deck(deck)
-    _starting_pile(start)
-    stacks = {"L": [], "C": [], "R": []}
-    stacks[start] = list(reversed(order))
-    cost = 0
-    for cost, command in enumerate(moves, 1):
-        try:
-            source, destination, card = command
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"Move {cost}: expected (source, destination, card).") from exc
-        if (source, destination) not in (("C", "L"), ("L", "C"), ("C", "R"), ("R", "C")):
-            raise ValueError(f"Move {cost}: compartments must be adjacent.")
-        if type(card) is not int or not stacks[source] or stacks[source][-1] != card:
-            raise ValueError(f"Move {cost}: {card!r} is not on top of {source}.")
-        if len(stacks[destination]) >= 52:
-            raise ValueError(f"Move {cost}: the destination is full.")
-        stacks[destination].append(stacks[source].pop())
-    if (stacks[start] != list(range(len(order), 0, -1))
-            or any(stack for name, stack in stacks.items() if name != start)):
-        raise ValueError(f"The final state does not have the whole deck sorted in {start}.")
-    return cost
+    return NAMES.index(letter(start))
 
 
 # For each size: CC, CO, OO (same outer), LR (opposite outers). Each tuple is
 # (maximum shortest distance, sum of shortest distances over all n! orders).
-# These finite BFS results can be reproduced with certify_blocks.cpp.
+# These finite BFS results can be reproduced with tools/certify_blocks.cpp.
 LEAVES = (
     ((0, 0), (0, 0), (0, 0), (0, 0)),  # empty
     ((0, 0), (1, 1), (0, 0), (2, 2)),
@@ -116,7 +65,7 @@ def _endpoint_type(source, dest):
 
 
 @cache
-def _bound(n, source, dest, mean_first=False, use_outer_split=False):
+def bound(n, source, dest, mean_first=False, use_outer_split=False):
     """Return (worst-case ceiling, uniform-mean ceiling, chosen split)."""
     if n < len(LEAVES):
         maximum, total = LEAVES[n][_endpoint_type(source, dest)]
@@ -131,8 +80,8 @@ def _bound(n, source, dest, mean_first=False, use_outer_split=False):
             v = 3 - t - u
             for a in range(1, n):
                 b = n - a
-                first, ef, _ = _bound(a, s, u, mean_first, use_outer_split)
-                second, es, _ = _bound(b, s, v, mean_first, use_outer_split)
+                first, ef, _ = bound(a, s, u, mean_first, use_outer_split)
+                second, es, _ = bound(b, s, v, mean_first, use_outer_split)
                 merge = a * abs(u - t) + b * abs(v - t)
                 worst_saving = 2 if s != t and b >= 2 else 0
                 mean_saving = Fraction(0)
@@ -164,8 +113,8 @@ def bounds(n=52, *, start="C"):
     if type(n) is not int or not 1 <= n <= 52:
         raise ValueError("Expected a deck size from 1 through 52.")
     pile = C if _starting_pile(start) == C else L
-    worst = _bound(n, pile, pile, use_outer_split=True)[0]
-    mean = _bound(n, pile, pile, mean_first=True, use_outer_split=True)[1]
+    worst = bound(n, pile, pile, use_outer_split=True)[0]
+    mean = bound(n, pile, pile, mean_first=True, use_outer_split=True)[1]
     return worst, mean
 
 
@@ -192,7 +141,7 @@ def _two_chains(cards):
 
 def movement_lower_bound(deck, *, start="C"):
     """Per-deck lower bound for the selected starting and finishing pile."""
-    cards = _active(_deck(deck))
+    cards = _active(check_deck(deck))
     if _starting_pile(start) != C:
         # Cards that never visit the far pile keep their relative order.
         tails = []
@@ -291,7 +240,7 @@ def _pattern_partitions(order, dest, start):
 
 
 @lru_cache(maxsize=4096)
-def _shortest_to_pile(start, order, dest):
+def shortest_to_pile(start, order, dest):
     """A* from a packed state to an ordered pile. Returns adjacent edge codes."""
     n = len(order)
     goal = _packed(range(1, n + 1), dest)
@@ -364,7 +313,7 @@ def _exact_block(cards, target, source, dest):
         return [step for card in cards for step in _transfer(source, dest, card)]
     ranks = {card: k for k, card in enumerate(target, 1)}
     order = bytes(ranks[x] for x in cards)
-    codes = _shortest_to_pile(_packed(order, source), order, dest)
+    codes = shortest_to_pile(_packed(order, source), order, dest)
     return _label_path(cards, source, codes)
 
 
@@ -376,7 +325,7 @@ def _one_card_across(cards, target, source):
     left, right = (near, far) if source == L else (far, near)
     # Search backward to an ordinary ordered pile so the same pattern
     # databases apply. Both outer piles are packed bottom first.
-    backward = _shortest_to_pile(left + b"\0\0" + right, order, source)
+    backward = shortest_to_pile(left + b"\0\0" + right, order, source)
     return _label_path(cards, source, (j ^ 1 for j in reversed(backward)))
 
 
@@ -392,13 +341,13 @@ def _label_path(cards, source, codes):
     return result
 
 
-def _construct(cards, target, source, dest, mean_first=False, use_outer_split=False):
+def construct(cards, target, source, dest, mean_first=False, use_outer_split=False):
     n = len(cards)
     if n < len(LEAVES):
         return _exact_block(cards, target, source, dest)
     if source == dest and cards == target:
         return []
-    backward, u, a, across = _bound(n, source, dest, mean_first, use_outer_split)[2]
+    backward, u, a, across = bound(n, source, dest, mean_first, use_outer_split)[2]
     if backward:
         cards, target = target, cards
         source, dest = dest, source
@@ -407,7 +356,7 @@ def _construct(cards, target, source, dest, mean_first=False, use_outer_split=Fa
     feed = target[::-1]
     first_goal = tuple(x for x in feed if x in group)
     second_goal = tuple(x for x in feed if x not in group)
-    path = _construct(cards[:a], first_goal, source, u, mean_first, use_outer_split)
+    path = construct(cards[:a], first_goal, source, u, mean_first, use_outer_split)
     # On a transfer to another pile, put the initial run of first-group
     # merge cards at the destination before starting the second subproblem.
     cut = next(i for i, x in enumerate(feed) if x not in group) if source != dest else 0
@@ -417,7 +366,7 @@ def _construct(cards, target, source, dest, mean_first=False, use_outer_split=Fa
         second_path = _one_card_across(cards[a:], second_goal, source)
         cut += 1  # This merge card is already on the destination.
     else:
-        second_path = _construct(cards[a:], second_goal, source, v, mean_first, use_outer_split)
+        second_path = construct(cards[a:], second_goal, source, v, mean_first, use_outer_split)
     if source == C and source != dest and second_path:
         # This child starts and finishes on C. Its two outer buffers are
         # interchangeable above their frozen bases. Match its last edge to
@@ -427,11 +376,11 @@ def _construct(cards, target, source, dest, mean_first=False, use_outer_split=Fa
     path.extend(second_path)
     for card in feed[cut:]:
         path.extend(_transfer(u if card in group else v, dest, card))
-    path = _shorten(path)
+    path = shorten(path)
     return _reverse(path) if backward else path
 
 
-def _shorten(path, m=52):
+def shorten(path, m=52):
     # Projection freezes the correct bottom suffix. Cancel adjacent inverse moves.
     out = []
     for code, card in path:
@@ -481,7 +430,7 @@ def _side_pass(cards, target):
                 return None
             center.pop()
             path.append((CODE[C, L], x))
-    return _shorten(path)
+    return shorten(path)
 
 
 def plan(deck, *, start="C", exact=False):
@@ -490,7 +439,7 @@ def plan(deck, *, start="C", exact=False):
     exact=True is optimal on every completed search. General 52-card exact searches
     can exhaust available time or memory. The default uses the certified construction.
     """
-    cards = _deck(deck)
+    cards = check_deck(deck)
     requested = _starting_pile(start)
     raw = min(candidate_paths(cards, C if requested == C else L, exact=exact), key=len)
     if requested == R:
@@ -528,50 +477,10 @@ def candidate_paths(cards, pile, *, exact=False):
     full_goal = tuple(range(1, len(cards) + 1))
     candidates = [] if raw is None else [raw]
     for mean_first, use_outer_split in product((False, True), repeat=2):
-        forward = _construct(cards, full_goal, pile, pile, mean_first, use_outer_split)
-        inverse = _reverse(_construct(target, active, pile, pile, mean_first, use_outer_split))
-        candidates.extend((_shorten(forward, m), _shorten(inverse, m)))
+        forward = construct(cards, full_goal, pile, pile, mean_first, use_outer_split)
+        inverse = _reverse(construct(target, active, pile, pile, mean_first, use_outer_split))
+        candidates.extend((shorten(forward, m), shorten(inverse, m)))
         if m != len(cards):
-            reduced = _construct(active, target, pile, pile, mean_first, use_outer_split)
-            candidates.append(_shorten(reduced, m))
+            reduced = construct(active, target, pile, pile, mean_first, use_outer_split)
+            candidates.append(shorten(reduced, m))
     return candidates
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("cards", type=int, nargs="*", help="deck from top to bottom")
-    parser.add_argument("--start", choices=("L", "C", "R"), default="C",
-                        help="same starting and finishing compartment (default: C)")
-    parser.add_argument("--seed", type=int, help="generate a reproducible shuffled 52-card deck")
-    parser.add_argument("--exact", action="store_true", help="use exact search for the entire active deck")
-    parser.add_argument("--bounds", type=int, metavar="N", help="show the worst-case and uniform-mean bounds")
-    args = parser.parse_args()
-    if args.bounds is not None:
-        if args.cards or args.seed is not None or args.exact:
-            parser.error("use --bounds with a deck size and optional --start")
-        try:
-            w, e = bounds(args.bounds, start=args.start)
-        except ValueError as exc:
-            parser.error(str(exc))
-        print(f"Worst-case ceiling: {w}\nUniform-mean ceiling: {e} ({float(e):.6f})")
-        return
-    if args.seed is not None and args.cards:
-        parser.error("choose a deck or --seed")
-    if args.seed is None and not args.cards:
-        parser.error("supply the initial deck in top-first order, or use --seed")
-    cards = args.cards
-    if args.seed is not None:
-        cards = list(range(1, 53))
-        random.Random(args.seed).shuffle(cards)
-    try:
-        moves = plan(cards, start=args.start, exact=args.exact)
-    except ValueError as exc:
-        parser.error(str(exc))
-    print(f"Top first in {args.start}:", " ".join(map(str, cards)))
-    print(f"Verified adjacent transfers: {len(moves)}")
-    for i, (s, t, card) in enumerate(moves, 1):
-        print(f"{i:3d}  {s} -> {t}  card {card}")
-
-
-if __name__ == "__main__":
-    main()

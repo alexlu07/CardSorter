@@ -11,37 +11,37 @@ Right starts mirror left starts. If you can choose, start in the middle: it has 
 
 ## How it works
 
-**Phase 1: scan and route** (`cards.ScanDealer`). The camera reads the card on top of the starting pile, and the dealer sends it to its pile by value, using only that card. From a side start, a card bound for the far side moves to the middle and waits there. Waiting cards move on only when a card bound for the middle is read, and cards still waiting at the end are left for phase 2. Scanning stops as soon as the bottom card is known by elimination; a bottom card or pair that is already in its final place never moves. An already-sorted deck therefore finishes in 100 moves from any start, the minimum for reading 51 cards.
+**Phase 1: scan and route** ([`dealer.ScanDealer`](cardsorter/dealer.py)). The camera reads the card on top of the starting pile, and the dealer sends it to its pile by value, using only that card. From a side start, a card bound for the far side moves to the middle and waits there. Waiting cards move on only when a card bound for the middle is read, and cards still waiting at the end are left for phase 2. Scanning stops as soon as the bottom card is known by elimination; a bottom card or pair that is already in its final place never moves. An already-sorted deck therefore finishes in 100 moves from any start, the minimum for reading 51 cards.
 
-**Phase 2: finish from the scanned layout** (`combined_sorter.Planner.plan_scanned`). Every card is now known. Cards still waiting on the middle either move on to the far side (the certified route) or the far pile is gathered onto the middle above them. Then the upper pile is sorted onto the starting compartment, and the lower pile on top of it. For each pile the planner tries:
+**Phase 2: finish from the scanned layout** ([`planner.Planner.plan_scanned`](cardsorter/planner.py)). Every card is now known. Cards still waiting on the middle either move on to the far side (the certified route) or the far pile is gathered onto the middle above them. Then the upper pile is sorted onto the starting compartment, and the lower pile on top of it. For each pile the planner tries:
 
-- Strategy A's certified recursive merge ([card_sorter.py](card_sorter.py), exact search for blocks of up to 11 cards), in its worst-case and mean-optimised variants, forwards and time-reversed;
-- a per-deck DP over A's merge family (`MergeDP`, exact 9-card table leaves), forwards and time-reversed;
-- Strategy B's per-deck hub-distribution DP ([hubsort.py](hubsort.py)), continuing the same first split.
+- Strategy A's certified recursive merge ([strategy_a.py](cardsorter/strategy_a.py), exact search for blocks of up to 11 cards), in its worst-case and mean-optimised variants, forwards and time-reversed;
+- a per-deck DP over A's merge family ([merge_dp.py](cardsorter/merge_dp.py), exact 9-card table leaves), forwards and time-reversed;
+- Strategy B's per-deck hub-distribution DP ([strategy_b.py](cardsorter/strategy_b.py)), continuing the same first split.
 
-Every combination is polished. Polishing removes pointless excursions, and replaces any window of at most 9 cards (10–11 for the best candidates) by its exact optimum when that is shorter. Phase-1 moves are never changed. The shortest plan is replayed by `card_sorter.verify` and checked against the 322 / 350 bound before any further card moves.
+Every combination is polished. Polishing removes pointless excursions, and replaces any window of at most 9 cards (10–11 for the best candidates) by its exact optimum when that is shorter. Phase-1 moves are never changed. The shortest plan is replayed by `model.verify` and checked against the 322 / 350 bound before any further card moves.
 
-The guarantee comes from the first pile split plus the better of A's and B's certified block bounds: `combined_sorter.scan_bound()` computes it.
+The guarantee comes from the first pile split plus the better of A's and B's certified block bounds: `scan.scan_bound()` computes it.
 
 ## Running it
 
+Requires Python 3.10+ and numpy (`pip install -r requirements.txt`). Run from the project folder:
+
 ```sh
-python cards.py --demo --seed 42 --start center --show-moves
-python visualizer.py
+python -m cardsorter demo --seed 42 --start center --show-moves
+python -m cardsorter visualize
+python -m cardsorter plan --seed 42 --start L
+python -m cardsorter bounds --start L
+python -m unittest discover tests
 ```
 
-Open the visualizer at http://127.0.0.1:8765 to watch a seeded or custom deck being scanned and sorted. The optional `--optimize` beam search can try to shorten the phase-2 plan further.
+`visualize` serves a browser playback at http://127.0.0.1:8765 where you can watch a seeded or custom deck being scanned and sorted. `demo --optimize` adds an optional beam search that can try to shorten the phase-2 plan. `--start` takes `L`, `C`, `R` or `left`, `center`, `right`.
 
-The first run builds the exact 9-card tables. This takes about a minute and about 1 GB of RAM. The tables are then cached in `.table_cache/`, so later runs load them in seconds. Planning needs numpy and takes 1–2 seconds per deck.
+The first run builds the exact 9-card tables. This takes about a minute and about 1 GB of RAM. The tables are then cached in `.table_cache/`, so later runs load them in seconds. Planning takes 1–2 seconds per deck.
 
 ## When the order is already known
 
-`combined_sorter.plan(deck, start="C")` plans without a scanning pass: for example, if the deck order was recorded on an earlier run. It keeps all of Strategy A's certified plans (322 / 350) and adds B's per-deck DP, the merge DP and the same polishing.
-
-```sh
-python combined_sorter.py --seed 42 --start L
-python card_sorter.py --start L --bounds 52
-```
+`cardsorter.plan(deck, start="C")` (or `python -m cardsorter plan --known`) plans without a scanning pass: for example, if the deck order was recorded on an earlier run. It keeps all of Strategy A's certified plans (322 / 350) and adds B's per-deck DP, the merge DP and the same polishing.
 
 | Strategy A, proven bound | Middle | Left |
 |---|---:|---:|
@@ -49,29 +49,46 @@ python card_sorter.py --start L --bounds 52
 | Reverse deck optimum | 204 | 206 |
 | Uniform-shuffle mean ceiling | <276.065 | <307.750 |
 
-[The C++ certifier](certify_blocks.cpp) reproduces the small-block constants used by the bound calculation.
+[The C++ certifier](tools/certify_blocks.cpp) reproduces the small-block constants used by the bound calculation.
 
-## Files and API
+## Package layout
 
-- `cards.py`: card numbering, the `Hardware` protocol, `ScanDealer` (phase 1), simulated hardware and the CLI.
-- `sorter.py`: `CardSorter(hardware, start="left").run()` scans, plans, verifies and executes the rest.
-- `combined_sorter.py`: `Planner.plan_scanned` (phase 2), `scan_destination` / `scan_moves` / `scan_bound`, and the full-knowledge `plan`.
-- `card_sorter.py`: Strategy A, its certified bounds and the independent `verify` replay.
-- `hubsort.py`: Strategy B and the exact BFS tables.
-- `heuristic_planner.py`: optional time-bounded beam search (`optimize_plan`).
-- `exact_stack_planner.py`: `Move(card, source, destination)` and `apply_moves(stacks, moves, protected=...)`, which replays moves and rejects illegal ones.
-- `visualizer.py`, `visualizer.html`: local simulation server and playback of scans and moves.
+```python
+from cardsorter import CardSorter, SimulatedHardware, plan_scanned, verify
 
-Lists are top-to-bottom; compartment names are `left`, `center`, `right`. IDs use clubs 1–13, diamonds 14–26, hearts 27–39, spades 40–52, with A, 2, …, 10, J, Q, K in each suit.
+moves = plan_scanned(deck, start="C")   # Move(source, destination, card) records
+verify(deck, moves, start="C")          # independent replay; returns the move count
+```
+
+| Module | Contents |
+|---|---|
+| [model.py](cardsorter/model.py) | Stack letters and names, `Move`, `apply_moves`, `verify` and the other replay helpers |
+| [scan.py](cardsorter/scan.py) | Phase-1 routing rules shared by the dealer and the planner, and `scan_bound` |
+| [planner.py](cardsorter/planner.py) | `Planner.plan_scanned` (scan-first) and `Planner.plan` (full knowledge): all candidates, polished and verified |
+| [strategy_a.py](cardsorter/strategy_a.py) | Strategy A: certified recursive merge, exact search up to 11 cards, `bounds` |
+| [strategy_b.py](cardsorter/strategy_b.py) | Strategy B: per-deck hub-distribution DP and its worst-case recurrence |
+| [merge_dp.py](cardsorter/merge_dp.py) | Per-deck DP over Strategy A's merge family |
+| [tables.py](cardsorter/tables.py) | Exact distance tables for blocks of up to 9 cards, cached on disk |
+| [polish.py](cardsorter/polish.py) | Excursion removal and exact window repair |
+| [improver.py](cardsorter/improver.py) | Optional time-bounded beam search (`optimize_plan`) |
+| [hardware.py](cardsorter/hardware.py) | Card names, the `Hardware` protocol and `SimulatedHardware` |
+| [dealer.py](cardsorter/dealer.py) | `ScanDealer`: phase 1 on the hardware |
+| [controller.py](cardsorter/controller.py) | `CardSorter`: scan, plan, verify, execute |
+| [visualizer.py](cardsorter/visualizer.py), [visualizer.html](cardsorter/visualizer.html) | Local simulation server and playback |
+| [\_\_main\_\_.py](cardsorter/__main__.py) | The `python -m cardsorter` command line |
+
+Stacks are the letters `L`, `C`, `R` everywhere except the hardware interface and the visualizer, which use `left`, `center`, `right`. Lists are top-to-bottom. IDs use clubs 1–13, diamonds 14–26, hearts 27–39, spades 40–52, with A, 2, …, 10, J, Q, K in each suit.
+
+[tests/test_cardsorter.py](tests/test_cardsorter.py) checks every planner and the simulated hardware against [tests/golden.json](tests/golden.json), the exact move lists recorded before the package restructure. A representative subset runs by default; set `CARDSORTER_FULL=1` to check every case.
 
 ## Connecting hardware
 
 The current executable simulates both scanning and motors. It does not recognize
-camera images or drive real hardware. Implement the `Hardware` protocol in `cards.py`,
-then run:
+camera images or drive real hardware. Implement the `Hardware` protocol in
+[hardware.py](cardsorter/hardware.py), then run:
 
 ```python
-from sorter import CardSorter
+from cardsorter import CardSorter
 
 sorter = CardSorter(adapter, start="left")  # Load the deck on the left.
 state = sorter.run()

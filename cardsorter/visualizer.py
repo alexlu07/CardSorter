@@ -1,6 +1,5 @@
-"""Local browser playback of real simulated sorter events; no dependencies."""
+"""Local browser playback of simulated sorter events (python -m cardsorter visualize)."""
 
-import argparse
 import json
 from pathlib import Path
 import random
@@ -8,8 +7,8 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from cards import SimulatedHardware
-from sorter import CardSorter
+from .controller import CardSorter
+from .hardware import SimulatedHardware
 
 
 def validate_deck(deck):
@@ -141,22 +140,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--start", choices=("left", "center", "right"), default="left")
-    args = parser.parse_args()
-    Handler.default_seed = args.seed
-    Handler.default_start = args.start
-    with ThreadingHTTPServer(("127.0.0.1", args.port), Handler) as server:
+def serve(port=8765, seed=42, start="left"):
+    """Serve the visualizer on http://127.0.0.1:<port> until Ctrl+C."""
+    Handler.default_seed = seed
+    Handler.default_start = start
+    with ThreadingHTTPServer(("127.0.0.1", port), Handler) as server:
         print(f"Card sorter visualizer: http://127.0.0.1:{server.server_port}", flush=True)
         print("Press Ctrl+C to stop. All cards and motors are simulated.", flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
             pass
-
-
-if __name__ == "__main__":
-    main()
